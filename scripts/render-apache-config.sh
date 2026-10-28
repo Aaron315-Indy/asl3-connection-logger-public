@@ -38,7 +38,11 @@ ProxyPassReverse /logger/ http://127.0.0.1:$PORT/
 EOF2
 
 if [[ "$MODE" == private ]]; then
-    echo "    Require ip $ALLOW_NETS"
+    if [[ "$ALLOW_NETS" == "0.0.0.0/0 ::/0" || "$ALLOW_NETS" == "::/0 0.0.0.0/0" ]]; then
+        echo "    Require all granted"
+    else
+        echo "    Require ip $ALLOW_NETS"
+    fi
 else
     cat <<EOF2
     SSLRequireSSL
