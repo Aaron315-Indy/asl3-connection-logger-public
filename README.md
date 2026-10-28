@@ -11,18 +11,52 @@ events with timestamps and session durations.
 ## Components
 
 1. Backend event collector and SQLite database.
-2. Web-based reporting interface (planned).
+2. Read-only web dashboard with Apache2 integration.
 
-## Development Status
 
-Version 0.1.0 — Initial development.
+## Installation
 
-## Supported Environment
+Tested environment: Debian 13 (Trixie) with AllStarLink 3.
 
-- Debian GNU/Linux 13 (Trixie)
-- AllStarLink 3
-- Python 3.13+
-- SQLite 3
+Run as root on your AllStarLink server.
+
+### 1. Install prerequisites
+
+    apt update
+    apt install -y git python3 python3-venv python3-pip apache2 curl
+
+### 2. Clone and install
+
+    git clone https://github.com/Aaron315-Indy/asl3-connection-logger-public.git /opt/asl3-connection-logger
+    cd /opt/asl3-connection-logger
+    python3 -m venv .venv
+    .venv/bin/python -m pip install .
+
+### 3. Install the connection collector
+
+Replace 123456 with your actual AllStarLink node number.
+
+Dry run:
+
+    ./scripts/install.sh --node 123456 --dry-run
+
+Install:
+
+    ./scripts/install.sh --node 123456
+
+The installer backs up /etc/asterisk/rpt.conf and configures
+connection and disconnection callbacks.
+
+Asterisk is not restarted or reloaded automatically.
+Apply callback changes during a controlled Asterisk reload.
+
+### 4. Install the optional dashboard
+
+See [Web Dashboard Installation](docs/web-dashboard.md#installation).
+
+### 5. Database location
+
+    /var/lib/asl3-connection-logger/connections.db
 
 ## License
 

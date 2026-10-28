@@ -55,32 +55,52 @@ SQLite connection database
 
 The Python service listens only on localhost.
 
+
 ## Installation
 
-From the repository:
+Complete the [main installation](../README.md#installation) first.
+
+### 1. Install Apache prerequisites
+
+Run as root:
+
+    apt update
+    apt install -y apache2 apache2-utils curl
+
+### 2. Install the private dashboard
 
     cd /opt/asl3-connection-logger
 
-For private mode:
+Replace 123456 with your actual AllStarLink node number.
 
-    ./scripts/install-dashboard.sh \
-      --node 123456 \
-      --mode private \
-      --allow-networks "192.0.2.0/24 198.51.100.0/24"
+Replace 192.0.2.0/24 with your actual permitted LAN or VPN
+network. The addresses below are documentation examples.
 
-For a custom private network allowlist:
+    ./scripts/install-dashboard.sh --node 123456 --mode private --allow-networks "192.0.2.0/24"
 
-    ./scripts/install-dashboard.sh \
-      --node 123456 \
-      --mode private \
-      --allow-networks "192.0.2.0/24 198.51.100.0/24"
+For multiple networks:
 
-The installer configures:
+    ./scripts/install-dashboard.sh --node 123456 --mode private --allow-networks "192.0.2.0/24 198.51.100.0/24"
+
+### 3. Verify installation
+
+    systemctl status asl3-connection-dashboard.service
+    apache2ctl configtest
+    curl --fail http://127.0.0.1:8765/health
+
+Open the dashboard at:
+
+    http://YOUR-SERVER-IP/logger/
+
+Your browser's source IP must be within an allowed network.
+
+### What the installer configures
 
 - Dedicated service account: asl3logger-web
 - systemd service: asl3-connection-dashboard.service
 - Apache2 reverse proxy under /logger/
 - Network-based authorization for private mode
+- Local API listening on 127.0.0.1:8765
 
 The installer can be rerun.
 
