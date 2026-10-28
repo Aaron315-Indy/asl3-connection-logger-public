@@ -2,268 +2,132 @@
 
 ## Overview
 
-The web dashboard provides read-only reporting for AllStarLink 3
-connection activity stored in SQLite.
+The web dashboard displays AllStarLink 3 connection activity.
 
-Features:
+You can view:
 
-- Current connections
-- Connection history
-- Completed and interrupted sessions
-- Connection duration statistics
+- Currently connected nodes
+- Connection and disconnection history
+- Session durations
+- Completed and interrupted connections
 - Most frequently connected remote nodes
-- Local and remote node filtering
-- Status filtering
-- UTC connection-start date filtering
-- Automatic refresh (15, 30, or 60 seconds)
-- Responsive dark interface
+- Connection statistics
+- Reports filtered by node, status, or date
 
-The dashboard does not control Asterisk or modify connection records.
-
-## Requirements
-
-- Debian 13 (Trixie)
-- AllStarLink 3
-- Apache2
-- Python virtual environment from the main project
-- Existing ASL3 Connection Logger installation
-- Root access for installation
-
-TLS certificate issuance and renewal are outside this project's scope.
-Administrators are responsible for configuring HTTPS when required.
-
-The installer uses Apache2 as a reverse proxy. No additional
-web server is required.
-
-## Architecture
-
-Browser
-  |
-  | HTTP or HTTPS
-  v
-Apache2 /logger/
-  |
-  | Reverse proxy
-  v
-127.0.0.1:8765
-  |
-  v
-Python read-only API
-  |
-  v
-SQLite connection database
-
-The Python service listens only on localhost.
-
+The dashboard is read-only. It does not control Asterisk.
 
 ## Installation
 
-Complete the [main installation](../README.md#installation) first.
+The dashboard is installed automatically by the standard
+ASL3 Connection Logger installer.
 
-### 1. Install Apache prerequisites
+On your AllStarLink 3 system:
 
-Run as root:
-
-    apt update
-    apt install -y apache2 apache2-utils curl
-
-### 2. Install the private dashboard
-
+    sudo apt update
+    sudo apt install -y git
+    sudo git clone https://github.com/Aaron315-Indy/asl3-connection-logger-public.git /opt/asl3-connection-logger
     cd /opt/asl3-connection-logger
+    sudo ./scripts/setup.sh
 
-Replace 123456 with your actual AllStarLink node number.
+The installer detects your AllStarLink node number and
+configures the logger and dashboard.
 
-Replace 192.0.2.0/24 with your actual permitted LAN or VPN
-network. The addresses below are documentation examples.
+If the logger is already installed, see the main README
+before rerunning the installer.
 
-    ./scripts/install-dashboard.sh --node 123456 --mode private --allow-networks "192.0.2.0/24"
+## Viewing Reports
 
-For multiple networks:
+Open a web browser and visit:
 
-    ./scripts/install-dashboard.sh --node 123456 --mode private --allow-networks "192.0.2.0/24 198.51.100.0/24"
+    http://YOUR-NODE-IP/logger/
 
-### 3. Verify installation
+Replace YOUR-NODE-IP with the IP address of your
+AllStarLink node.
 
-    systemctl status asl3-connection-dashboard.service
-    apache2ctl configtest
-    curl --fail http://127.0.0.1:8765/health
+The dashboard refreshes automatically and allows you
+to filter connection history.
 
-Open the dashboard at:
+## Activating Connection Logging
 
-    http://YOUR-SERVER-IP/logger/
+The installer configures Asterisk connection and
+disconnection callbacks.
 
-Your browser's source IP must be within an allowed network.
+It does not restart or reload Asterisk automatically.
 
-### What the installer configures
+Apply the callback changes during a controlled Asterisk
+reload before expecting new connection events.
 
-- Dedicated service account: asl3logger-web
-- systemd service: asl3-connection-dashboard.service
-- Apache2 reverse proxy under /logger/
-- Network-based authorization for private mode
-- Local API listening on 127.0.0.1:8765
+## Checking Dashboard Status
 
-The installer can be rerun.
-
-## Authentication modes
-
-### Private
-
-Private mode requires no username or password.
-
-Apache restricts access to the configured source networks.
-
-No networks are allowed by default. Administrators must
-explicitly supply an allowlist with `--allow-networks` or the
-`ASL3_DASHBOARD_NETWORKS` environment variable.
-
-Private mode does not automatically make the server private.
-Ensure the allowlist reflects the networks from which Apache
-actually receives client connections.
-
-### Public
-
-Public mode is intended to use Apache Basic Authentication
-over HTTPS.
-
-The installer includes preliminary support for:
-
-    ./scripts/install-dashboard.sh \
-      --node 123456 \
-      --mode public
-
-**Public mode is not yet approved for deployment.**
-
-Before enabling it, validate the HTTPS virtual host, certificate
-hostname, authentication enforcement, and HTTP-to-HTTPS behavior.
-
-Do not expose Basic Authentication over plaintext HTTP.
-
-## URLs
-
-Example private dashboard:
-
-    http://192.0.2.10/logger/
-
-Configured hostname:
-
-    node.example.org
-
-The hostname's HTTPS URL requires a valid certificate and
-a correctly configured Apache HTTPS virtual host.
-
-## API
-
-Health endpoint:
-
-    http://127.0.0.1:8765/health
-
-Dashboard endpoint:
-
-    http://127.0.0.1:8765/api/dashboard
-
-Supported query parameters:
-
-| Parameter | Description |
-|-----------|-------------|
-| node | Local node number |
-| remote | Remote node number |
-| status | active, completed, interrupted |
-| from | Start date, YYYY-MM-DD |
-| to | End date, YYYY-MM-DD |
-| limit | Maximum returned sessions, capped at 500 |
-
-Date filters apply to the connection start date in UTC.
-
-Statistics are calculated over all matching sessions, not
-only the limited set returned in the history table.
-
-## Service management
-
-Check status:
+Check the dashboard service:
 
     systemctl status asl3-connection-dashboard.service
 
-Restart dashboard:
-
-    systemctl restart asl3-connection-dashboard.service
-
-View logs:
-
-    journalctl -u asl3-connection-dashboard.service -n 100 --no-pager
-
-The dashboard service is independent of Asterisk.
-
-## Apache2 configuration
-
-Configuration file:
-
-    /etc/apache2/conf-available/asl3-connection-logger.conf
-
-Enabled through:
-
-    /etc/apache2/conf-enabled/asl3-connection-logger.conf
-
-Check Apache syntax:
-
-    apache2ctl configtest
-
-Reload Apache:
-
-    systemctl reload apache2
-
-The installer does not replace the existing AllStarLink
-Apache virtual host.
-
-## Troubleshooting
-
-### Dashboard unavailable
-
-Check:
-
-    systemctl status asl3-connection-dashboard.service
-
-    ss -ltnp '( sport = :8765 )'
+Check the dashboard API:
 
     curl http://127.0.0.1:8765/health
 
-### HTTP 403
+Check Apache:
 
-Check the private-mode source IP allowlist.
+    systemctl status apache2
 
-If accessing through a VPN or reverse proxy, verify the
-source address Apache actually sees.
+## Troubleshooting
 
-### HTTP 503 from the API
+### Dashboard does not load
 
-Verify that the web service account can read the SQLite
-database and traverse its parent directory.
+Verify the dashboard and Apache services are running.
 
-The database must remain protected from unauthorized writes.
+    systemctl status asl3-connection-dashboard.service
+    systemctl status apache2
 
-### Apache proxy errors
+### Dashboard loads but shows no connections
 
-Check:
+Verify that Asterisk has applied the new callback
+configuration.
 
-    apache2ctl configtest
+Connection history appears after connections and
+disconnections have been recorded.
 
-    journalctl -u apache2 -n 100 --no-pager
+### Dashboard returns an error
 
-### Date filters
+Check the dashboard logs:
 
-Dates use YYYY-MM-DD and are interpreted against the
-UTC connection-start date.
+    journalctl -u asl3-connection-dashboard.service -n 50 --no-pager
 
-## Development
+Check Apache logs:
 
-Run tests:
+    journalctl -u apache2 -n 50 --no-pager
 
-    cd /opt/asl3-connection-logger
-    .venv/bin/python -m pytest -q
+## Security
 
-Check syntax:
+The standard interactive installer does not configure
+dashboard authentication or restrict client source IPs.
 
-    .venv/bin/python -m compileall -q src/asl3_connection_logger
+Anyone who can reach the Apache web server may be able
+to view connection reports.
+
+Do not expose the dashboard directly to the public
+Internet without appropriate access controls.
+
+## Advanced Configuration
+
+Hub operators can use the noninteractive installers
+for custom configurations:
+
+- scripts/install.sh
+- scripts/install-dashboard.sh
+
+These support explicit node selection and private
+network restrictions.
+
+The dashboard's local API listens on:
+
+    127.0.0.1:8765
+
+Apache provides access under:
+
+    /logger/
 
 ## License
 
-GPL-3.0-or-later.
+GNU General Public License version 3 or later.
