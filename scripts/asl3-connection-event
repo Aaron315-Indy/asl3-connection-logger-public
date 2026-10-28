@@ -1,0 +1,8 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+set -eu
+
+INSTALL_DIR="${ASL3_LOGGER_HOME:-/opt/asl3-connection-logger}"
+
+exec "$INSTALL_DIR/.venv/bin/python" \
+  "$INSTALL_DIR/scripts/asl3-event-hook" "$@"

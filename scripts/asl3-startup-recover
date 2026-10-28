@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Recover sessions from previous Asterisk runtimes."""
+
+import argparse
+import sys
+
+from asl3_connection_logger.startup import recover_previous_runtimes
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--node", required=True)
+    parser.add_argument(
+        "--database",
+        default="/var/lib/asl3-connection-logger/connections.db",
+    )
+    parser.add_argument("--apply", action="store_true")
+    args = parser.parse_args()
+
+    try:
+        rows = recover_previous_runtimes(
+            args.database,
+            args.node,
+            dry_run=not args.apply,
+        )
+        print("Mode:", "APPLY" if args.apply else "DRY RUN")
+        for session_id, remote_node in rows:
+            print(f"Session {session_id}: {remote_node} -> interrupted")
+        print("Sessions requiring reconciliation:", len(rows))
+        return 0
+    except Exception as exc:
+        print(f"Startup recovery aborted: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

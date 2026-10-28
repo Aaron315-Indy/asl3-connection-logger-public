@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ASL3 Connection Logger</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg:#10151f;--panel:#1b2432;--border:#344155;
+  --text:#eef3fa;--muted:#a6b4c8;--accent:#67b7ff;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:15px system-ui,Arial,sans-serif}
+header{padding:22px 24px;background:#182231;border-bottom:1px solid var(--border)}
+h1{margin:0;font-size:24px}
+h2{font-size:18px;margin:0 0 16px}
+main{max-width:1500px;margin:auto;padding:20px}
+.panel{background:var(--panel);border:1px solid var(--border);
+  border-radius:12px;padding:20px;margin-bottom:20px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+.stat{background:#111a27;border-radius:8px;padding:16px}
+.stat strong{display:block;font-size:27px;margin-top:8px}
+.muted{color:var(--muted)}
+.filters{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
+label{display:flex;flex-direction:column;gap:6px;color:var(--muted)}
+input,select,button{padding:10px;border-radius:7px;
+  border:1px solid var(--border);background:#111a27;color:var(--text)}
+button{cursor:pointer;background:#254b70}
+button:hover{background:#32638e}
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;text-align:left}
+th,td{padding:12px;border-bottom:1px solid var(--border);white-space:nowrap}
+th{color:var(--muted)}
+.active{color:#65df9a}.completed{color:#80bfff}
+.interrupted{color:#ffb36b}
+.status{font-weight:600}
+footer{padding:20px;text-align:center;color:var(--muted)}
+#error{color:#ff9292}
+@media(max-width:600px){
+  header{padding:16px}main{padding:12px}
+  .panel{padding:14px}h1{font-size:20px}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>AllStarLink 3 Connection Logger</h1>
+  <div class="muted">Connection monitoring and history</div>
+</header>
+<main>
+  <section class="panel">
+    <div class="filters">
+      <label>Local node
+        <input id="node" placeholder="100001" inputmode="numeric">
+      </label>
+      <label>Remote node
+        <input id="remote" placeholder="All nodes" inputmode="numeric">
+      </label>
+      <label>Status
+        <select id="status">
+          <option value="">All</option>
+          <option value="active">Active</option>
+          <option value="completed">Completed</option>
+          <option value="interrupted">Interrupted</option>
+        </select>
+      </label>
+      <label>From date
+        <input id="from" type="date">
+      </label>
+      <label>To date
+        <input id="to" type="date">
+      </label>
+      <label>Refresh
+        <select id="refresh">
+          <option value="15">15 seconds</option>
+          <option value="30">30 seconds</option>
+          <option value="60">60 seconds</option>
+          <option value="0">Manual</option>
+        </select>
+      </label>
+      <button id="apply">Apply filters</button>
+      <button id="reload">Refresh now</button>
+    </div>
+    <p class="muted" id="updated">Waiting for data...</p>
+    <p id="error" role="alert"></p>
+  </section>
+
+  <section class="panel">
+    <h2>Connection statistics</h2>
+    <div class="stats">
+      <div class="stat">Active<strong id="active">—</strong></div>
+      <div class="stat">Completed<strong id="completed">—</strong></div>
+      <div class="stat">Interrupted<strong id="interrupted">—</strong></div>
+      <div class="stat">Average duration<strong id="average">—</strong></div>
+      <div class="stat">Longest duration<strong id="longest">—</strong></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Current connections</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Local</th><th>Remote</th><th>Connected</th><th>Elapsed</th></tr></thead>
+        <tbody id="current"><tr><td colspan="4">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Connection history</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Local</th><th>Remote</th><th>Connected</th>
+          <th>Disconnected</th><th>Duration</th><th>Status</th>
+        </tr></thead>
+        <tbody id="history"><tr><td colspan="6">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Most frequently connected nodes</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Remote node</th><th>Connections</th></tr></thead>
+        <tbody id="popular"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<footer>ASL3 Connection Logger · GPLv3</footer>
+<script>
+"use strict";
+const el = id => document.getElementById(id);
+let timer;
+
+function duration(seconds) {
+  if (seconds === null || seconds === undefined) return "—";
+  seconds = Math.max(0, Math.floor(seconds));
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor(seconds % 86400 / 3600);
+  const minutes = Math.floor(seconds % 3600 / 60);
+  const secs = seconds % 60;
+  return (days ? days + "d " : "") +
+    [hours, minutes, secs].map(x => String(x).padStart(2,"0")).join(":");
+}
+function date(value) {
+  if (!value) return "—";
+  // SQLite timestamps without a zone are treated as UTC.
+  const normalized = /(?:Z|[+-]\d\d:\d\d)$/.test(value) ? value :
+    value.replace(" ", "T") + "Z";
+  const d = new Date(normalized);
+  return isNaN(d.getTime()) ? value : d.toLocaleString();
+}
+function cell(tr, value, className="") {
+  const td = document.createElement("td");
+  td.textContent = value ?? "—";
+  if (className) td.className = className;
+  tr.appendChild(td);
+}
+function table(id, rows, columns) {
+  const body = el(id);
+  body.replaceChildren();
+  if (!rows.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = columns.length;
+    td.textContent = "No records";
+    tr.appendChild(td);
+    body.appendChild(tr);
+    return;
+  }
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    for (const column of columns) {
+      const result = column(row);
+      if (Array.isArray(result)) cell(tr, result[0], result[1]);
+      else cell(tr, result);
+    }
+    body.appendChild(tr);
+  }
+}
+function elapsed(row) {
+  const raw = row.connected_at;
+  const normalized = /(?:Z|[+-]\d\d:\d\d)$/.test(raw) ?
+    raw : raw.replace(" ", "T") + "Z";
+  return duration((Date.now() - new Date(normalized).getTime()) / 1000);
+}
+async function load() {
+  const query = new URLSearchParams();
+  for (const key of ["node","remote","status"]) {
+    if (el(key).value.trim()) query.set(key, el(key).value.trim());
+  }
+  if (el("from").value) query.set("from", el("from").value);
+  if (el("to").value) query.set("to", el("to").value);
+  query.set("limit", "500");
+  try {
+    const response = await fetch("api/dashboard?" + query, {cache:"no-store"});
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    const data = await response.json();
+    const sessions = data.sessions || [];
+    const counts = data.counts || {};
+    for (const key of ["active","completed","interrupted"])
+      el(key).textContent = counts[key] || 0;
+    el("average").textContent = duration(data.average_seconds);
+    el("longest").textContent = duration(data.longest_seconds);
+    table("current", sessions.filter(r => r.status === "active"), [
+      r => r.local_node, r => r.remote_node,
+      r => date(r.connected_at), r => elapsed(r)
+    ]);
+    table("history", sessions, [
+      r => r.local_node, r => r.remote_node,
+      r => date(r.connected_at), r => date(r.disconnected_at),
+      r => duration(r.duration_seconds),
+      r => [r.status, r.status]
+    ]);
+    table("popular", data.top_nodes || [], [
+      r => r.remote_node, r => r.connections
+    ]);
+    el("updated").textContent = "Last updated: " + new Date().toLocaleString();
+    el("error").textContent = "";
+  } catch (error) {
+    el("error").textContent = "Dashboard update failed: " + error.message;
+  }
+}
+function schedule() {
+  clearInterval(timer);
+  const seconds = Number(el("refresh").value);
+  if (seconds > 0) timer = setInterval(load, seconds * 1000);
+}
+el("apply").addEventListener("click", load);
+el("reload").addEventListener("click", load);
+el("refresh").addEventListener("change", schedule);
+schedule();
+load();
+</script>
+</body>
+</html>

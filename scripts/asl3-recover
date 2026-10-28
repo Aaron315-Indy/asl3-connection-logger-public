@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Reconcile connection sessions against a verified Asterisk snapshot."""
+
+import argparse
+import sys
+from datetime import datetime, timezone
+
+from asl3_connection_logger.asterisk import query_asterisk
+from asl3_connection_logger.recovery import reconcile_sessions
+from asl3_connection_logger.runtime import get_stable_runtime_id
+
+
+
+def verify_runtime(expected):
+    current = get_stable_runtime_id()
+    if current != expected:
+        raise RuntimeError(
+            "Asterisk runtime changed; recovery cancelled"
+        )
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--node", required=True)
+    parser.add_argument(
+        "--database",
+        default="/var/lib/asl3-connection-logger/connections.db",
+    )
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply changes; otherwise dry-run only",
+    )
+
+    args = parser.parse_args()
+
+    if not args.node.isdigit():
+        parser.error("Node must be numeric")
+
+    try:
+        # Identify Asterisk before taking the connection snapshot.
+        runtime_before = get_stable_runtime_id()
+        snapshot_started_at = datetime.now(
+            timezone.utc
+        ).isoformat()
+
+        connected = query_asterisk(args.node)
+
+        # Reject snapshots spanning an Asterisk restart.
+        runtime_after = get_stable_runtime_id()
+
+        if runtime_before != runtime_after:
+            raise RuntimeError(
+                "Asterisk restarted during connection snapshot"
+            )
+
+        print("Asterisk runtime:", runtime_before)
+        print("Asterisk connected nodes:", sorted(connected))
+        print("Mode:", "APPLY" if args.apply else "DRY RUN")
+
+        # Recheck immediately before database reconciliation.
+        if get_stable_runtime_id() != runtime_before:
+            raise RuntimeError(
+                "Asterisk restarted before reconciliation"
+            )
+
+        interrupted = reconcile_sessions(
+            args.database,
+            args.node,
+            connected,
+            dry_run=not args.apply,
+            runtime_id=runtime_before,
+            snapshot_started_at=snapshot_started_at,
+            runtime_guard=(
+                lambda: verify_runtime(runtime_before)
+            ),
+        )
+
+        for session_id, remote_node in interrupted:
+            print(
+                f"Session {session_id}: "
+                f"{remote_node} -> interrupted"
+            )
+
+        print(
+            "Sessions requiring reconciliation:",
+            len(interrupted),
+        )
+
+        return 0
+
+    except Exception as exc:
+        print(
+            f"Recovery aborted: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

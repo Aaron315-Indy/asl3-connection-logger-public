@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ASL3 connection/disconnection callback entry point."""
+
+import argparse
+import os
+import sys
+
+from asl3_connection_logger.collector import process_event
+from asl3_connection_logger.runtime import get_runtime_id
+
+DEFAULT_DB = "/var/lib/asl3-connection-logger/connections.db"
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Record ASL3 connection events"
+    )
+    parser.add_argument(
+        "event",
+        choices=("connect", "disconnect"),
+    )
+    parser.add_argument("local_node")
+    parser.add_argument("remote_node")
+    parser.add_argument(
+        "--database",
+        default=os.environ.get(
+            "ASL3_LOGGER_DB", DEFAULT_DB
+        ),
+    )
+
+    args = parser.parse_args()
+
+    try:
+        process_event(
+            args.database,
+            args.local_node,
+            args.remote_node,
+            args.event,
+            runtime_id=get_runtime_id(),
+        )
+    except Exception as exc:
+        print(
+            f"ASL3 Connection Logger: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
