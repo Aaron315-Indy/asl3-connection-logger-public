@@ -111,7 +111,7 @@ WantedBy=multi-user.target
 EOF
 
 echo "=== PREPARE APACHE ==="
-a2enmod proxy proxy_http headers
+a2enmod proxy proxy_http headers alias
 
 if [[ "$MODE" == public ]]; then
     echo "=== APACHE AUTHENTICATION ==="
@@ -182,6 +182,16 @@ if [[ "$READY" -ne 1 ]]; then
 fi
 
 echo "Dashboard API ready"
+
+echo "=== VERIFY DASHBOARD DATA API ==="
+if ! curl --fail --silent --show-error --max-time 10 \
+    "http://127.0.0.1:$PORT/api/dashboard?limit=1" \
+    -o /dev/null; then
+    echo "Dashboard data API verification failed" >&2
+    exit 1
+fi
+
+echo "Dashboard data API ready"
 
 echo "=== RELOAD APACHE ==="
 systemctl reload apache2

@@ -31,6 +31,7 @@ cat <<EOF2
 # Mode: $MODE
 # Hostname: $HOSTNAME
 
+RedirectMatch 301 ^/logger$ /logger/
 ProxyPass        /logger/ http://127.0.0.1:$PORT/
 ProxyPassReverse /logger/ http://127.0.0.1:$PORT/
 

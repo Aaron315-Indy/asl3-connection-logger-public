@@ -125,3 +125,16 @@ def test_rollback_reloads_restored_apache_configuration():
         < rollback.index("apache2ctl configtest")
         < rollback.index("systemctl reload apache2")
     )
+
+
+def test_installer_verifies_dashboard_api():
+    source = installer()
+    assert "/health" in source
+    assert "/api/dashboard?limit=1" in source
+    assert "Dashboard data API verification failed" in source
+    assert "curl -I" not in source
+    assert "curl --head" not in source
+
+
+def test_redirect_module_enabled():
+    assert "a2enmod proxy proxy_http headers alias" in installer()

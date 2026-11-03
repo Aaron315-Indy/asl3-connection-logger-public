@@ -64,3 +64,15 @@ def test_proxy_stays_on_localhost():
         result = render(mode, networks)
         assert result.returncode == 0
         assert "http://127.0.0.1:8765/" in result.stdout
+
+
+def test_logger_without_trailing_slash_redirects():
+    """Both private and public modes must redirect /logger."""
+    for mode, networks in (
+        ("private", "127.0.0.1/32"),
+        ("public", ""),
+    ):
+        result = render(mode, networks)
+        assert result.returncode == 0
+        assert "RedirectMatch 301 ^/logger$ /logger/" in result.stdout
+        assert "ProxyPass        /logger/ http://127.0.0.1:8765/" in result.stdout

@@ -49,6 +49,7 @@ def apache_server():
             ("authn_file", "/usr/lib/apache2/modules/mod_authn_file.so"),
             ("unixd", "/usr/lib/apache2/modules/mod_unixd.so"),
             ("ssl", "/usr/lib/apache2/modules/mod_ssl.so"),
+            ("alias", "/usr/lib/apache2/modules/mod_alias.so"),
         ]
 
         load = "\n".join(
@@ -366,7 +367,7 @@ def test_rendered_public_https_authentication():
 
         modules = [
             "mpm_event", "authz_core", "authz_host", "authz_user",
-            "auth_basic", "authn_core", "authn_file", "socache_shmcb", "ssl",
+            "auth_basic", "authn_core", "authn_file", "socache_shmcb", "ssl", "alias",
         ]
         loads = "\n".join(
             f"LoadModule {name}_module {module_dir / ('mod_' + name + '.so')}"
