@@ -11,6 +11,62 @@ WRAPPER="/usr/local/bin/asl3-connection-event"
 NODE=""
 DRY_RUN=0
 
+# Multi-node mode delegates to the existing single-node installer.
+if [[ "${1:-}" == "--nodes" ]]; then
+    [[ $# -ge 2 ]] || {
+        echo "ERROR: --nodes requires node numbers" >&2
+        exit 1
+    }
+
+    shift
+    NODES=()
+    MULTI_DRY_RUN=0
+
+    while (($#)); do
+        case "$1" in
+            --dry-run)
+                MULTI_DRY_RUN=1
+                ;;
+            *)
+                [[ "$1" =~ ^[0-9]+$ ]] || {
+                    echo "ERROR: Invalid node: $1" >&2
+                    exit 1
+                }
+                NODES+=("$1")
+                ;;
+        esac
+        shift
+    done
+
+    ((${#NODES[@]})) || exit 1
+
+    # Reject duplicate nodes before making changes.
+    declare -A SEEN_NODES=()
+    for node in "${NODES[@]}"; do
+        if [[ -v SEEN_NODES[$node] ]]; then
+            echo "ERROR: Duplicate node: $node" >&2
+            exit 1
+        fi
+        SEEN_NODES[$node]=1
+    done
+
+    # Validate every node before making changes.
+    for node in "${NODES[@]}"; do
+        "$0" --node "$node" --dry-run
+    done
+
+    if ((MULTI_DRY_RUN)); then
+        echo "Multi-node dry run complete."
+        exit 0
+    fi
+
+    for node in "${NODES[@]}"; do
+        "$0" --node "$node"
+    done
+
+    exit 0
+fi
+
 usage() {
     echo "Usage: $0 --node NODE [--dry-run]"
 }

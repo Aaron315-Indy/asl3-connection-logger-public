@@ -52,24 +52,36 @@ PY
 ((${#NODES[@]})) || die "No AllStarLink nodes detected."
 
 if ((${#NODES[@]} == 1)); then
-    NODE="${NODES[0]}"
-    echo "Detected AllStarLink node: $NODE"
+    SELECTED_NODES=("${NODES[0]}")
+    echo "Detected AllStarLink node: ${NODES[0]}"
 else
     echo "Available AllStarLink nodes:"
+    echo "  0) All nodes"
+
     for i in "${!NODES[@]}"; do
-        printf '  %d) %s\n' "$((i+1))" "${NODES[$i]}"
+        printf '  %d) %s\\n' "$((i+1))" "${NODES[$i]}"
     done
 
     while true; do
-        read -r -p "Select node [1-${#NODES[@]}]: " CHOICE
-        if [[ "$CHOICE" =~ ^[1-9][0-9]*$ ]] &&
-           ((CHOICE <= ${#NODES[@]})); then
-            NODE="${NODES[$((CHOICE-1))]}"
+        read -r -p "Select node [0-${#NODES[@]}]: " CHOICE
+
+        if [[ "$CHOICE" == 0 ]]; then
+            SELECTED_NODES=("${NODES[@]}")
+            break
+        elif [[ "$CHOICE" =~ ^[1-9][0-9]*$ ]] &&
+             ((CHOICE <= ${#NODES[@]})); then
+            SELECTED_NODES=("${NODES[$((CHOICE-1))]}")
             break
         fi
+
         echo "Invalid selection."
     done
 fi
+
+NODE="${SELECTED_NODES[0]}"
+
+echo
+echo "Selected nodes: ${SELECTED_NODES[*]}"
 
 echo
 echo "This installer will:"
@@ -123,12 +135,12 @@ fi
 echo
 echo "=== VALIDATING COLLECTOR ==="
 
-"$REPO/scripts/install.sh" --node "$NODE" --dry-run
+"$REPO/scripts/install.sh" --nodes "${SELECTED_NODES[@]}" --dry-run
 
 echo
 echo "=== INSTALLING COLLECTOR ==="
 
-"$REPO/scripts/install.sh" --node "$NODE"
+"$REPO/scripts/install.sh" --nodes "${SELECTED_NODES[@]}"
 
 echo
 echo "=== INSTALLING DASHBOARD ==="
@@ -143,7 +155,7 @@ echo "========================================"
 echo "       INSTALLATION COMPLETE"
 echo "========================================"
 echo
-echo "AllStarLink node: $NODE"
+echo "AllStarLink nodes: ${SELECTED_NODES[*]}"
 echo "Database: /var/lib/asl3-connection-logger/connections.db"
 
 SERVER_IP="$(hostname -I | awk '{print $1}')"
