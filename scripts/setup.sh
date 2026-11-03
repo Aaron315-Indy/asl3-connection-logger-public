@@ -59,7 +59,7 @@ else
     echo "  0) All nodes"
 
     for i in "${!NODES[@]}"; do
-        printf '  %d) %s\\n' "$((i+1))" "${NODES[$i]}"
+        printf '  %d) %s\n' "$((i+1))" "${NODES[$i]}"
     done
 
     while true; do
