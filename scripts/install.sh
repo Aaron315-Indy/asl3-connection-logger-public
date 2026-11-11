@@ -123,6 +123,8 @@ id asterisk >/dev/null 2>&1 || {
     exit 1
 }
 
+"$INSTALL_DIR/scripts/show-versions.sh" "$INSTALL_DIR"
+
 echo "=== ASL3 CONNECTION LOGGER INSTALLER ==="
 echo "Node: $NODE"
 echo "Install directory: $INSTALL_DIR"
@@ -227,6 +229,21 @@ install -d -o asterisk -g asterisk -m 750 "$DB_DIR"
 runuser -u asterisk -- \
     "$INSTALL_DIR/.venv/bin/python" -c \
     "from asl3_connection_logger.database import initialize_database; initialize_database('$DB_FILE')"
+
+echo "=== INSTALL METADATA SYNCHRONIZATION ==="
+
+install -m 644 \
+    "$INSTALL_DIR/systemd/asl3-metadata-sync.service" \
+    /etc/systemd/system/asl3-metadata-sync.service
+
+install -m 644 \
+    "$INSTALL_DIR/systemd/asl3-metadata-sync.timer" \
+    /etc/systemd/system/asl3-metadata-sync.timer
+
+systemctl daemon-reload
+systemctl enable --now asl3-metadata-sync.timer
+
+echo "PASS: Metadata synchronization timer installed"
 
 echo "=== CONFIGURE NODE CALLBACKS ==="
 python3 - "$RPT_CONF" "$NODE" "$WRAPPER" <<'PY'

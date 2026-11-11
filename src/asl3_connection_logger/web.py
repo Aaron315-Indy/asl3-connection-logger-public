@@ -4,6 +4,10 @@
 import argparse
 import json
 import sqlite3
+from html import escape
+from .version import version_info, version_label
+
+from .metadata import resolve_node
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -95,13 +99,44 @@ def read_dashboard(db_path, node="", status="", remote="", limit=100, date_from=
             params,
         ).fetchall()
 
+    sessions = [dict(row) for row in rows]
+    top_nodes = [dict(row) for row in popular]
+
+    # Resolve metadata from SQLite only; never contact the directory
+    # during a dashboard request.
+    with sqlite3.connect(uri, uri=True, timeout=5) as db:
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA query_only=ON")
+
+        metadata_cache = {}
+
+        def metadata_for(node_number):
+            if node_number not in metadata_cache:
+                metadata_cache[node_number] = resolve_node(
+                    db, node_number
+                )
+            return metadata_cache[node_number]
+
+        for session in sessions:
+            session["local_metadata"] = metadata_for(
+                session["local_node"]
+            )
+            session["remote_metadata"] = metadata_for(
+                session["remote_node"]
+            )
+
+        for entry in top_nodes:
+            entry["remote_metadata"] = metadata_for(
+                entry["remote_node"]
+            )
+
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "sessions": [dict(row) for row in rows],
+        "sessions": sessions,
         "counts": {row["status"]: row["total"] for row in counts},
         "average_seconds": duration["average_seconds"],
         "longest_seconds": duration["longest_seconds"],
-        "top_nodes": [dict(row) for row in popular],
+        "top_nodes": top_nodes,
     }
 
 
@@ -113,6 +148,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/":
             return self.send_homepage()
+
+        if parsed.path == "/api/version":
+            return self.send_json(version_info())
 
         if parsed.path == "/health":
             return self.send_json({"status": "ok"})
@@ -143,7 +181,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         page = (
             files("asl3_connection_logger")
             .joinpath("static/index.html")
-            .read_bytes()
+            .read_text(encoding="utf-8")
+            .replace("{{APPLICATION_VERSION}}", escape(version_label()))
+            .encode("utf-8")
         )
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -166,6 +206,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--version", action="version",
+                        version="ASL3 Connection Logger " + version_label())
     parser.add_argument("--database", default=DEFAULT_DB)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)

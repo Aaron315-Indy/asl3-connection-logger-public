@@ -133,3 +133,27 @@ monitoring, history, statistics, filtering, and auto-refresh.
 See [Web Dashboard Documentation](docs/web-dashboard.md)
 for installation, configuration, security modes, API details,
 and troubleshooting.
+
+## Node metadata
+
+Connection history can display AllStarLink directory callsigns, locations, and locally configured descriptions. Metadata is cached in SQLite and refreshed by a systemd timer.
+
+See [Node metadata documentation](docs/node-metadata.md) for synchronization, configuration, and local overrides.
+
+## Application version
+
+Show the installed version and available commit identifier:
+
+    /opt/asl3-connection-logger/.venv/bin/asl3-connection-logger --version
+
+The equivalent module command is `.venv/bin/python -m asl3_connection_logger --version`.
+The dashboard footer shows the same identity, even if reporting data fails.
+Fetch public build information with:
+
+    curl http://127.0.0.1:8765/api/version
+
+Through Apache the endpoint is `/logger/api/version` and uses the dashboard's
+existing access controls. Fields are `version`, `commit` (or null), and `build`
+(`type`, `built_at` UTC or null, and `dirty`). No database access is required.
+See [Release and upgrade documentation](docs/releases.md) for the authoritative
+version source, development versions, archive builds and upgrade preflight.

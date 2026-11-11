@@ -1,0 +1,17 @@
+[Unit]
+Description=AllStarLink 3 Connection Logger - Directory Metadata Sync
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=asterisk
+Group=asterisk
+WorkingDirectory=/opt/asl3-connection-logger
+ExecStart=/opt/asl3-connection-logger/.venv/bin/python -m asl3_connection_logger.metadata_sync --database /var/lib/asl3-connection-logger/connections.db
+TimeoutStartSec=30min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/asl3-connection-logger

@@ -131,7 +131,7 @@ footer{padding:20px;text-align:center;color:var(--muted)}
     </div>
   </section>
 </main>
-<footer>ASL3 Connection Logger · GPLv3</footer>
+<footer>ASL3 Connection Logger · {{APPLICATION_VERSION}} · GPLv3</footer>
 <script>
 "use strict";
 const el = id => document.getElementById(id);
@@ -158,8 +158,26 @@ function date(value) {
 function cell(tr, value, className="") {
   const td = document.createElement("td");
   td.textContent = value ?? "—";
+  if (typeof value === "string" && value.includes("\n"))
+    td.style.whiteSpace = "pre-line";
   if (className) td.className = className;
   tr.appendChild(td);
+}
+function nodeLabel(nodeNumber, metadata) {
+  const number = String(nodeNumber ?? "");
+  if (!metadata) return number;
+
+  const callsign = metadata.callsign;
+  const details = [
+    metadata.description,
+    metadata.location
+  ].filter(Boolean);
+
+  let label = number;
+  if (callsign) label += " — " + callsign;
+  if (details.length) label += "\n" + details.join(" · ");
+
+  return label;
 }
 function table(id, rows, columns) {
   const body = el(id);
@@ -208,17 +226,20 @@ async function load() {
     el("average").textContent = duration(data.average_seconds);
     el("longest").textContent = duration(data.longest_seconds);
     table("current", sessions.filter(r => r.status === "active"), [
-      r => r.local_node, r => r.remote_node,
+      r => nodeLabel(r.local_node, r.local_metadata),
+      r => nodeLabel(r.remote_node, r.remote_metadata),
       r => date(r.connected_at), r => elapsed(r)
     ]);
     table("history", sessions, [
-      r => r.local_node, r => r.remote_node,
+      r => nodeLabel(r.local_node, r.local_metadata),
+      r => nodeLabel(r.remote_node, r.remote_metadata),
       r => date(r.connected_at), r => date(r.disconnected_at),
       r => duration(r.duration_seconds),
       r => [r.status, r.status]
     ]);
     table("popular", data.top_nodes || [], [
-      r => r.remote_node, r => r.connections
+      r => nodeLabel(r.remote_node, r.remote_metadata),
+      r => r.connections
     ]);
     el("updated").textContent = "Last updated: " + new Date().toLocaleString();
     el("error").textContent = "";

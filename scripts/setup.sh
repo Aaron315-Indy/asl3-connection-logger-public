@@ -26,6 +26,8 @@ die() {
 
 echo
 echo "========================================"
+"$REPO/scripts/show-versions.sh" "$REPO"
+
 echo "     ASL3 CONNECTION LOGGER SETUP"
 echo "========================================"
 echo

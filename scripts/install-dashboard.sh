@@ -75,6 +75,8 @@ if [[ "$MODE" == public ]]; then
     }
 fi
 
+"$REPO/scripts/show-versions.sh" "$REPO"
+
 echo "=== CREATE SERVICE USER ==="
 if ! id asl3logger-web >/dev/null 2>&1; then
     useradd --system --no-create-home \

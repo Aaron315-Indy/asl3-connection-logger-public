@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "asl3-connection-logger"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Connection history logger for AllStarLink 3"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,4 +25,10 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 
 [tool.setuptools.package-data]
-asl3_connection_logger = ["static/*.html", "static/*.css", "static/*.js"]
+asl3_connection_logger = ["static/*.html", "static/*.css", "static/*.js", "build-info.json"]
+
+[tool.setuptools.dynamic]
+version = {attr = "asl3_connection_logger._version.VERSION"}
+
+[project.scripts]
+asl3-connection-logger = "asl3_connection_logger.__main__:main"

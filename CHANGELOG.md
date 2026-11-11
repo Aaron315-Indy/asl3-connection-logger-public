@@ -1,6 +1,23 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.0] — 2026-11-11
+
+### Added
+- Cached node metadata, local overrides, and periodic directory synchronization.
+- Dashboard metadata labels with correctly rendered newlines.
+- One SemVer application version source with distinct development identity.
+- Installed dashboard footer, CLI --version, and GET /api/version.
+- Installer installed/incoming version preflight before package replacement.
+- Frozen commit and build provenance for wheels, sdists and source archives.
+- Automated version, packaging and HTTP tests; release/upgrade documentation.
+
+## [0.1.0] — existing public baseline
+
+The initial public commit (2d0eebe) and subsequent installed package declared
+0.1.0. No version tags were present in the inspected local history.
+The original development notes follow; their limitations describe that earlier
+stage and are not a statement of current feature support.
+
 
 ### Added
 - SQLite connection event database

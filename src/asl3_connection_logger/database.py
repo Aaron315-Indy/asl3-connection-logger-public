@@ -4,7 +4,7 @@
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -59,6 +59,9 @@ def initialize_database(db_path):
     with sqlite3.connect(db_path) as connection:
         connection.executescript(SCHEMA)
 
+        # Keep the version update and migration changes atomic.
+        connection.execute("BEGIN IMMEDIATE")
+
         row = connection.execute(
             "SELECT version FROM schema_version LIMIT 1"
         ).fetchone()
@@ -79,12 +82,46 @@ def initialize_database(db_path):
                 "ADD COLUMN runtime_id TEXT"
             )
             connection.execute(
-                "UPDATE schema_version SET version = 2"
+                "UPDATE schema_version SET version = 3"
+            )
+
+        elif row[0] == 2:
+            connection.execute(
+                "UPDATE schema_version SET version = 3"
             )
 
         elif row[0] != SCHEMA_VERSION:
             raise RuntimeError(
                 f"Unsupported database schema version: {row[0]}"
             )
+
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS node_metadata (
+                node_number TEXT PRIMARY KEY,
+                callsign TEXT,
+                owner TEXT,
+                location TEXT,
+                frequency TEXT,
+                tone TEXT,
+                site TEXT,
+                affiliation TEXT,
+                last_seen INTEGER,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS node_metadata_overrides (
+                node_number TEXT PRIMARY KEY,
+                callsign TEXT,
+                owner TEXT,
+                location TEXT,
+                frequency TEXT,
+                tone TEXT,
+                site TEXT,
+                affiliation TEXT,
+                description TEXT
+            )
+        """)
 
         connection.commit()
