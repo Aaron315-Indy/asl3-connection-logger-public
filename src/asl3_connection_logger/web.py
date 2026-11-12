@@ -7,11 +7,17 @@ import sqlite3
 from html import escape
 from .version import version_info, version_label
 
+from .release import release_identity
+from .local_nodes import configured_nodes
 from .metadata import resolve_node
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
+
+# Capture once: reading installed files on each request could identify an old
+# process as the newly installed release.
+RUNNING_RELEASE = release_identity()
 
 DEFAULT_DB = "/var/lib/asl3-connection-logger/connections.db"
 
@@ -142,12 +148,16 @@ def read_dashboard(db_path, node="", status="", remote="", limit=100, date_from=
 
 class DashboardHandler(BaseHTTPRequestHandler):
     database = DEFAULT_DB
+    rpt_config = "/etc/asterisk/rpt.conf"
 
     def do_GET(self):
         parsed = urlsplit(self.path)
 
         if parsed.path == "/":
             return self.send_homepage()
+
+        if parsed.path == "/api/release":
+            return self.send_json(RUNNING_RELEASE)
 
         if parsed.path == "/api/version":
             return self.send_json(version_info())
@@ -183,6 +193,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             .joinpath("static/index.html")
             .read_text(encoding="utf-8")
             .replace("{{APPLICATION_VERSION}}", escape(version_label()))
+            .replace("{{DEFAULT_LOCAL_NODE}}", next(iter(configured_nodes(self.rpt_config)), ""))
             .encode("utf-8")
         )
         self.send_response(200)

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.1
+
+- Default the dashboard local-node input to the lowest locally configured node,
+  including multi-node installations, while retaining manual and empty filters.
+- Add interactive and noninteractive setup upgrades with verified SQLite backups,
+  environment and metadata timer updates, process release verification, and
+  automatic rollback of the previous environment and units on failure.
+- Separate incoming source from installed paths and keep protected persistent
+  rollback backups outside Git; never overwrite the live database during rollback.
+  Preserve existing configuration and never reload or restart Asterisk.
+- Render systemd working directories as literal paths and validate generated
+  metadata service/timer units before changing the installed environment.
+
+
 ## [0.2.0] — 2026-11-11
 
 ### Added

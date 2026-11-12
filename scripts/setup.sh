@@ -2,14 +2,20 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -Eeuo pipefail
 
-REPO="/opt/asl3-connection-logger"
+SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO="${ASL3_INSTALL_DIR:-/opt/asl3-connection-logger}"
 RPT_CONF="/etc/asterisk/rpt.conf"
 DRY_RUN=0
+
+if [[ "${1:-}" == "--upgrade" ]]; then
+    shift
+    exec python3 "$SOURCE/scripts/upgrade.py" "$SOURCE" "$@"
+fi
 
 if [[ "${1:-}" == "--dry-run" && $# -eq 1 ]]; then
     DRY_RUN=1
 elif (($#)); then
-    echo "Usage: $0 [--dry-run]" >&2
+    echo "Usage: $0 [--dry-run | --upgrade [--install-dir PATH] [--backup-root PATH]]" >&2
     exit 2
 fi
 
@@ -20,6 +26,14 @@ die() {
 
 [[ $EUID -eq 0 ]] || die "Run as root."
 [[ -t 0 ]] || die "Interactive terminal required."
+if [[ -x "$REPO/.venv/bin/python" && $DRY_RUN -eq 0 ]]; then
+    read -r -p "Upgrade existing installation? [y/N]: " UPGRADE
+    if [[ "$UPGRADE" =~ ^[Yy]$ ]]; then
+        exec python3 "$SOURCE/scripts/upgrade.py" "$SOURCE" --install-dir "$REPO"
+    fi
+    echo "Existing installation preserved. Use --upgrade to upgrade."
+    exit 0
+fi
 [[ -f "$RPT_CONF" ]] || die "AllStarLink configuration missing."
 [[ -f "$REPO/scripts/install.sh" ]] || die "Collector installer missing."
 [[ -f "$REPO/scripts/install-dashboard.sh" ]] || die "Dashboard installer missing."

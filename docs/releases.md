@@ -3,7 +3,7 @@
 The authoritative Semantic Versioning source is
 `src/asl3_connection_logger/_version.py:VERSION`. Packaging reads this same
 constant. The historical installed and initial public version was 0.1.0;
-the current release is 0.2.0. Development versions use an X.Y.Z-dev suffix
+the incoming release is 0.2.1 (based on public 0.2.0). Development versions use an X.Y.Z-dev suffix
 plus the commit and dirty indicator. Python package metadata normalizes
 development suffixes to PEP 440.
 The application consistently displays the original SemVer spelling.
@@ -32,15 +32,30 @@ the application version remains available and commit is null. The API includes
 only version, commit, and build type, timestamp and dirty flag. It excludes
 hostnames, paths, remotes, environment variables and credentials.
 
-The interactive installer prints installed and incoming identity before its
-confirmation and before pip runs. Noninteractive installers print the same
-preflight before changes; when upgrading manually, run this *before* pip:
+The supported upgrade entry point is `scripts/setup.sh` from the incoming public
+release checkout or extracted source folder:
 
-    ./scripts/show-versions.sh /opt/asl3-connection-logger
-    /opt/asl3-connection-logger/.venv/bin/python -m pip install /path/to/source
+    sudo scripts/setup.sh --upgrade
 
-Use an extracted incoming source directory as the first argument when staging
-an upgrade separately. The installed environment defaults to
-`/opt/asl3-connection-logger`; an optional second argument overrides that path. Preserve `/var/lib/asl3-connection-logger`,
-existing hooks and configuration. Do not uninstall or reinitialize the database
-to upgrade. Version checks and `/api/version` never open the database.
+The source directory is independent of the installed application, which defaults
+to `/opt/asl3-connection-logger`. For an explicitly customized installation use
+`--install-dir /your/installed/path`. Interactive setup also offers the upgrade
+when it detects that installed environment. Use `scripts/show-versions.sh` for
+read-only version inspection; direct pip installation bypasses the supported
+backup, rollback, and verification workflow.
+
+The upgrade builds an incoming wheel, backs up the live SQLite database with its
+backup API, and saves the complete old environment and metadata units in the
+root-protected `/var/backups/asl3-connection-logger` directory outside Git.
+Failures after installation begins trigger automatic application and unit
+rollback, followed by verification of the restored dashboard. The live database
+is never overwritten during rollback. Unfinished recovery blocks later upgrades.
+See [dashboard upgrade instructions](web-dashboard.md#upgrading-an-existing-installation)
+for state files, custom paths, configuration preservation and recovery details.
+
+The dashboard's `/api/release` endpoint reports a process-start snapshot of its
+release identity and package content hash, excluding build timestamps from the
+hash. Upgrade verification requires that snapshot to match the incoming wheel;
+checking `/api/version` or the installed Python package alone is insufficient.
+The old public v0.2.0 dashboard can be restored without this new endpoint.
+Version endpoints do not open the database.
