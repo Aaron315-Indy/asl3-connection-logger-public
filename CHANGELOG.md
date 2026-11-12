@@ -7,8 +7,9 @@
 
 ## 0.2.1
 
-- Default the dashboard local-node input to the lowest locally configured node,
-  including multi-node installations, while retaining manual and empty filters.
+- Default the dashboard local-node input to the lowest locally configured node
+  numbered 2000 or greater across multi-node installations. Leave the default
+  blank for private-only configurations and retain manual and empty filters.
 - Add interactive and noninteractive setup upgrades with verified SQLite backups,
   environment and metadata timer updates, process release verification, and
   automatic rollback of the previous environment and units on failure.

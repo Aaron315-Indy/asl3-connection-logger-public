@@ -193,7 +193,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             .joinpath("static/index.html")
             .read_text(encoding="utf-8")
             .replace("{{APPLICATION_VERSION}}", escape(version_label()))
-            .replace("{{DEFAULT_LOCAL_NODE}}", next(iter(configured_nodes(self.rpt_config)), ""))
+            .replace(
+                "{{DEFAULT_LOCAL_NODE}}",
+                next((node for node in configured_nodes(self.rpt_config) if int(node) >= 2000), ""),
+            )
             .encode("utf-8")
         )
         self.send_response(200)

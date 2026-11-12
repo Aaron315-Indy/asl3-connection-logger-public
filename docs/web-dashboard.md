@@ -132,11 +132,13 @@ Apache provides access under:
 
 GNU General Public License version 3 or later.
 
-The local-node filter initially contains the lowest numeric node section in
-`/etc/asterisk/rpt.conf` (including local `#include` and `#tryinclude` files).
+The local-node filter initially contains the lowest numeric node section numbered
+2000 or greater in `/etc/asterisk/rpt.conf` (including local `#include` and
+`#tryinclude` files).
 Numeric template sections are excluded. If configuration is unavailable or has
-no local nodes, the filter starts empty. You can enter another local node or
-clear the field to show all nodes; refreshing does not restore the default.
+no eligible local nodes, the filter starts empty. Private nodes (0–1999) remain
+logged, queryable, and available through manual filters. You can enter another
+local node or clear the field to show all nodes; refreshing does not restore the default.
 
 ### Upgrading an existing installation
 
