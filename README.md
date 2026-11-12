@@ -64,6 +64,8 @@ Public `main` tracks the latest stable release. Immutable `vX.Y.Z` tags identify
 specific releases; see [release details](docs/releases.md) for tagged builds.
 
 Run this block **as root in an interactive terminal** on Debian 13 or ASL3.
+Supported starting points are public **v0.1.0 with schema v2** and **v0.2.x**
+installations. See [compatibility and recovery details](docs/web-dashboard.md#upgrading-an-existing-installation).
 Keep the existing dashboard running. The incoming checkout is separate from the
 default installed application at `/opt/asl3-connection-logger`.
 

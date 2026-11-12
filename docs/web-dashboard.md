@@ -151,14 +151,21 @@ to the source checkout or replace installed hooks. For an explicitly customized
 installation use `--upgrade --install-dir /your/installed/path` or set
 `ASL3_INSTALL_DIR` (pass it through sudo if needed).
 
-Setup validates the effective dashboard command, installed version, running
-version, health and data API before making changes. It preserves custom database
+Setup supports public v0.1.0 (schema v2) and v0.2.x installations. It backs up
+the database, Python environment and service configuration before probing HTTP
+capabilities or changing installed files. It validates the effective dashboard
+command and requires a working data API. For v0.1.0, missing health/version/release
+endpoints use a narrowly scoped legacy fallback based on installed package
+metadata and content. Modern and incoming releases retain strict version/release
+checks. HTTP errors include the exact request URL. It preserves custom database
 and port arguments, resolves relative database paths against the service working
 directory, and preserves independently configured metadata database paths.
 Unresolved systemd argument substitutions and masked metadata units require
 operator resolution before upgrade. A running metadata job must finish before
-upgrading. The metadata timer is paused during installation and its previous
-active/enabled state is preserved. Only the dashboard service can be restarted;
+upgrading. Legacy metadata tables are added atomically as the database owner.
+The schema-2 connection-history marker is retained so original callbacks work
+after rollback; new databases use schema 3. The metadata timer is paused during
+installation and its previous active/enabled state is preserved. Only the dashboard service can be restarted;
 Asterisk and Apache are never restarted or reloaded.
 
 Backups live outside Git at `/var/backups/asl3-connection-logger/upgrade-*`, beneath
@@ -166,7 +173,8 @@ a root-owned directory with mode 0700. An optional `--backup-root` selects anoth
 persistent, root-controlled location outside any repository. Ensure sufficient
 disk space for the database snapshot, the complete old environment, and the new
 wheel. Backups contain a verified SQLite backup (including committed WAL data),
-the previous Python environment, metadata unit files or symlink information,
+the previous Python environment with verified ownership and modes, dashboard
+and metadata unit files or symlink information, drop-in reference copies,
 `units.json`, `state.json`, and recovery instructions in `ROLLBACK.txt`.
 
 Setup finishes backup preparation and builds and inspects the incoming wheel
@@ -191,8 +199,12 @@ the previous dashboard when the environment may have changed. If environment
 restoration fails, dashboard restart and verification are skipped and rollback
 is reported incomplete. Successful rollback requires matching the previous
 version API identity and captured release identity (the legacy v0.2.0 API
-provides version, commit, and dirty flag without a content endpoint). It retains the
-failed environment in the protected backup directory for diagnosis. Apache settings, authentication,
+provides version, commit, and dirty flag without a content endpoint). For
+v0.1.0, restored package metadata/content and the original history API and
+capabilities replace unavailable HTTP identity endpoints. Original callback
+compatibility is retained; additive metadata tables are not dropped on rollback.
+The failed environment remains in the protected backup directory for diagnosis.
+Apache settings, authentication,
 Asterisk callbacks, dashboard settings, metadata, and the live database are
 preserved. Ordinary rollback never writes or restores the live SQLite database:
 callbacks may have recorded events after the snapshot.

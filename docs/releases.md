@@ -67,3 +67,33 @@ excluded from the installed digest. A `.bak` file actually shipped in the wheel
 is always checked. All other unexpected code or resource files still affect the
 digest; this is not a manifest-only allowlist. Source checkouts without matching
 installed-wheel ownership metadata retain the strict directory scan.
+
+### Supported upgrade starting points
+
+Direct upgrades support the public v0.1.0 dashboard installation (distribution
+version 0.1.0, database schema 2) and the v0.2.x series. Early backend-only/schema-1
+installations and incomplete or unhealthy installations are refused safely; do
+not relabel a database schema or install over it to bypass preflight checks.
+
+The v0.1.0 package has no version module, frozen build metadata, `/api/version`,
+or `/api/release`, and predates the metadata timer. Setup obtains its version
+from installed distribution metadata, captures its package content fingerprint,
+and requires a working history API. Missing health/identity endpoints are
+tolerated only for this known legacy package, not for modern installations.
+All HTTP diagnostics identify the exact requested URL. SQLite and environment
+backups and unit snapshots are prepared before HTTP capability probing.
+
+Metadata tables are added transactionally, as the database owner, without
+changing existing schema-2 connection records or their version marker. New
+databases still use schema 3. Retaining marker 2 is essential: original v0.1.0
+callbacks reject marker 3, including after a Python-environment rollback.
+Ordinary rollback preserves the live database and any post-backup events;
+additive metadata tables may remain and are harmless to the legacy application.
+
+Rollback verifies the restored legacy package version, content, ownership and
+permissions, then restarts the original dashboard and verifies its original
+HTTP capabilities and history API. A legacy dashboard cannot provide an HTTP
+content attestation; that limitation does not relax verification of the incoming
+release: its installed content and running version/release identity must match
+the wheel. See the [upgrade investigation](legacy-upgrade.md) for source evidence
+and disposable integration coverage.

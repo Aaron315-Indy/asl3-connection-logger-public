@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Support transactional upgrades from public v0.1.0 without identity APIs or
+  metadata units. Verify backups before probing HTTP endpoints and report exact URLs.
+- Preserve environment ownership/modes and retain the schema-2 marker while adding
+  metadata, so original callbacks keep logging after rollback without a DB restore.
+- Add real legacy wheel/HTTP/SQLite integration and failure/rollback regressions.
+
 ## 0.2.2
 
 - Match wheel and installed content digests despite untracked `.bak` leftovers;

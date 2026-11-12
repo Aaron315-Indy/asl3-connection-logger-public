@@ -86,9 +86,9 @@ def initialize_database(db_path):
             )
 
         elif row[0] == 2:
-            connection.execute(
-                "UPDATE schema_version SET version = 3"
-            )
+            # Metadata is additive. Retain the v2 connection-history marker so
+            # a restored v0.1.0 collector can keep logging after rollback.
+            pass
 
         elif row[0] != SCHEMA_VERSION:
             raise RuntimeError(

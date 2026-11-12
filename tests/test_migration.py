@@ -136,7 +136,7 @@ def test_v2_database_migration_preserves_sessions(tmp_path):
             )
         }
 
-    assert version == 3
+    assert version == 2  # Original v0.1.0 callbacks must remain compatible.
     assert session == (
         "100001", "100002", "completed", "test-runtime"
     )

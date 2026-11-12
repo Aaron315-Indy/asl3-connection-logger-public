@@ -834,3 +834,97 @@ def test_configured_install_path_is_not_rewritten_as_a_database_directory():
     arguments = shlex.split(fields['ExecStart'])
     assert arguments == [str(install / '.venv/bin/python'), '--database=' + db]
     assert shlex.split(fields['ReadWritePaths']) == ['/srv/metadata']
+
+
+@pytest.mark.parametrize('missing_health', [False, True])
+def test_legacy_missing_identity_apis_and_metadata_units_upgrade_and_rollback(machine, monkeypatch, missing_health):
+    machine.old['version'] = '0.1.0'
+    machine.marker.write_text(json.dumps(machine.old))
+    machine.running = machine.old.copy()
+    machine.timer_active, machine.timer_enabled = 'inactive', ''
+    with sqlite3.connect(machine.database) as db:
+        db.execute('CREATE TABLE schema_version(version)')
+        db.execute('INSERT INTO schema_version VALUES (2)')
+    for unit in upgrade.UNITS:
+        (machine.units / unit).unlink()
+    real_api, real_property = upgrade.get_api, upgrade.property_value
+    def api(port, path):
+        if machine.running == machine.old and (path in ('/api/version', '/api/release') or missing_health and path == '/health'):
+            raise HTTPError('http://127.0.0.1:9876' + path, 404, 'not found', {}, None)
+        return real_api(port, path)
+    def prop(unit, name):
+        if unit == upgrade.UNITS[0] and name == 'ExecStart':
+            return ''
+        return real_property(unit, name)
+    monkeypatch.setattr(upgrade, 'get_api', api)
+    monkeypatch.setattr(upgrade, 'property_value', prop)
+    machine.failure = 'api-health'
+    with pytest.raises(RuntimeError, match='Previous dashboard restored and verified'):
+        machine.perform()
+    assert machine.status()['state'] == 'rolled-back'
+    assert machine.status()['dashboard_verified'] is True
+    assert machine.status()['previous']['legacy']['version_endpoint'] is False
+    assert machine.running == machine.old
+    assert not any((machine.units / unit).exists() for unit in upgrade.UNITS)
+    assert machine.timer_active == 'inactive' and machine.timer_enabled in ('', 'disabled')
+    with sqlite3.connect(machine.database) as db:
+        assert db.execute('SELECT value FROM history').fetchall() == [(42,), (99,)]
+        assert db.execute('SELECT version FROM schema_version').fetchone() == (2,)
+
+
+@pytest.mark.parametrize('path', ['/health', '/api/version', '/api/dashboard?limit=1'])
+def test_http_errors_report_the_exact_request_url(monkeypatch, path):
+    def missing(url, **kwargs):
+        raise HTTPError(url, 404, 'Not Found', {}, None)
+    monkeypatch.setattr(upgrade, 'urlopen', missing)
+    with pytest.raises(HTTPError) as error:
+        upgrade.get_api(9876, path)
+    assert error.value.code == 404
+    assert 'GET http://127.0.0.1:9876' + path in str(error.value)
+
+
+@pytest.mark.parametrize('path', ['/health', '/api/dashboard?limit=1', '/api/version'])
+def test_modern_missing_endpoint_retains_backup_and_fails_before_install(machine, monkeypatch, path):
+    real_api = upgrade.get_api
+    def api(port, request):
+        if request == path:
+            raise HTTPError('http://127.0.0.1:9876' + path, 404, 'Not Found', {}, None)
+        return real_api(port, request)
+    monkeypatch.setattr(upgrade, 'get_api', api)
+    with pytest.raises(RuntimeError, match='preparation failed; installation unchanged'):
+        machine.perform()
+    assert (machine.backup() / 'connections.db').is_file()
+    assert (machine.backup() / 'venv/previous-only').is_file()
+    assert machine.status()['state'] == 'preparation-failed'
+    assert not any('pip' in args and 'install' in args for args in machine.calls)
+    assert not machine.dashboard_restarts()
+
+
+def test_environment_copy_and_restore_preserves_ownership_permissions_and_symlinks(tmp_path):
+    source, backup, restored = tmp_path / 'original', tmp_path / 'backup', tmp_path / 'restored'
+    source.mkdir(mode=0o750)
+    (source / 'private').write_bytes(b'configuration and application bytes')
+    (source / 'private').chmod(0o640)
+    (source / 'link').symlink_to('private')
+    if os.geteuid() == 0:
+        os.chown(source / 'private', 12345, 12346)
+    before = upgrade.tree_state(source)
+    upgrade.copy_environment(source, backup)
+    upgrade.copy_environment(backup, restored)
+    assert upgrade.tree_state(backup) == before
+    assert upgrade.tree_state(restored) == before
+
+
+@pytest.mark.parametrize('missing', [True, False])
+def test_optional_metadata_property_only_tolerates_missing_units(monkeypatch, missing):
+    def failed(*args, **kwargs):
+        raise subprocess.CalledProcessError(1, args, output='Unit could not be found' if missing else 'Failed to connect to bus')
+    monkeypatch.setattr(upgrade, 'run', failed)
+    if missing:
+        assert upgrade.property_value(upgrade.UNITS[0], 'ActiveState') == 'inactive'
+        assert upgrade.property_value(upgrade.TIMER, 'UnitFileState') == ''
+        with pytest.raises(subprocess.CalledProcessError):
+            upgrade.property_value(upgrade.SERVICE, 'ActiveState')
+    else:
+        with pytest.raises(subprocess.CalledProcessError):
+            upgrade.property_value(upgrade.UNITS[0], 'ActiveState')
