@@ -86,7 +86,9 @@ def version_from_source(text):
 
 
 def wheel_release(wheel):
-    # Same canonical hash as release.content_digest, without importing incoming code.
+    # The wheel defines application-owned files. Installed release_identity uses
+    # RECORD to distinguish unowned .bak debris; every file shipped here is hashed.
+    # Use the same content_digest rules without importing incoming code.
     prefix = 'asl3_connection_logger/'
     with ZipFile(wheel) as archive:
         entries = sorted((name[len(prefix):], archive.read(name))

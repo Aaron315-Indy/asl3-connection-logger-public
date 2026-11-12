@@ -41,3 +41,51 @@ def test_wheel_identity_matches_installed_hash(tmp_path):
             archive.writestr('asl3_connection_logger/' + name, data)
     assert upgrade.wheel_release(wheel) == {'version': '0.2.1', 'commit': 'a' * 40,
                                            'dirty': False, 'content_sha256': content_digest(entries)}
+
+
+def test_source_checkout_and_unrelated_distribution_keep_strict_file_scan(tmp_path, monkeypatch):
+    from asl3_connection_logger import release
+    package = tmp_path / 'source/asl3_connection_logger'
+    package.mkdir(parents=True)
+    (package / 'code.py').write_bytes(b'code')
+    (package / 'code.py.bak').write_bytes(b'backup without known wheel ownership')
+    unrelated = type('OtherDistribution', (), {'locate_file': lambda self, name: tmp_path / name})()
+    monkeypatch.setattr(release, 'distribution', lambda name: unrelated)
+    assert release._installed_files(package) is None
+    assert dict(release.application_entries(package)) == {
+        'code.py': b'code', 'code.py.bak': b'backup without known wheel ownership'}
+
+
+def test_invalid_record_paths_are_rejected(tmp_path):
+    import pytest
+    from asl3_connection_logger.release import application_entries
+    for name in ('../outside.py', '/outside.py'):
+        with pytest.raises(ValueError, match='Invalid application path'):
+            list(application_entries(tmp_path, {name}))
+
+
+def test_raw_record_retains_missing_owned_backup_entries(tmp_path, monkeypatch):
+    import pytest
+    from asl3_connection_logger import release
+    package = tmp_path / 'asl3_connection_logger'
+    package.mkdir()
+    (package / 'code.py').write_bytes(b'code')
+
+    class WheelDistribution:
+        def locate_file(self, name):
+            return package
+
+        def read_text(self, name):
+            return {'WHEEL': 'Wheel-Version: 1.0\n', 'RECORD':
+                    'asl3_connection_logger/code.py,,\n'
+                    'asl3_connection_logger/static/owned.html.bak,,\n'}.get(name)
+
+        @property
+        def files(self):
+            raise AssertionError('Do not use a metadata API that filters missing files')
+
+    monkeypatch.setattr(release, 'distribution', lambda name: WheelDistribution())
+    owned = release._installed_files(package)
+    assert owned == {'code.py', 'static/owned.html.bak'}
+    with pytest.raises(FileNotFoundError):
+        list(release.application_entries(package, owned))
