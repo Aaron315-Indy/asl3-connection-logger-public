@@ -60,6 +60,53 @@ The installer will:
 6. Install the read-only reporting dashboard.
 7. Configure Apache to serve reports at /logger/.
 
+### Upgrading an Existing Installation
+
+Download the latest [public release](https://github.com/Aaron315-Indy/asl3-connection-logger-public/releases/latest)
+and extract it into a fresh directory **outside** `/opt/asl3-connection-logger`.
+Alternatively, clone the release below, replacing `RELEASE_TAG` with its published
+tag. Use a new destination if the example directory already exists.
+
+    git clone --branch RELEASE_TAG https://github.com/Aaron315-Indy/asl3-connection-logger-public.git /tmp/asl3-connection-logger-upgrade
+    cd /tmp/asl3-connection-logger-upgrade
+    sudo ./scripts/setup.sh
+
+Keep the existing dashboard running. Answer `y` to **Upgrade existing installation?**.
+The default installed application remains at `/opt/asl3-connection-logger`;
+run setup from the incoming release directory. For a noninteractive upgrade,
+run this instead from that same directory:
+
+    sudo ./scripts/setup.sh --upgrade
+
+Setup automatically creates and verifies a SQLite backup before changing the
+installation. Existing history, metadata, Asterisk callbacks, Apache settings,
+authentication, and dashboard configuration are preserved. The dashboard may
+restart; Asterisk is never restarted or reloaded. Failures after changes begin
+trigger automatic application and systemd-unit rollback; the live database is
+never overwritten during ordinary rollback.
+
+After upgrading, verify the expected release, active dashboard service, and database:
+
+    curl --fail --silent --show-error http://127.0.0.1:8765/api/version
+    sudo systemctl status --no-pager asl3-connection-dashboard.service
+
+Check SQLite integrity read-only using the installed Python standard library:
+
+```bash
+sudo python3 - <<'PYSQL'
+import sqlite3
+with sqlite3.connect("file:/var/lib/asl3-connection-logger/connections.db?mode=ro", uri=True) as db:
+    print(db.execute("PRAGMA integrity_check").fetchall())
+PYSQL
+```
+
+Expect `[('ok',)]`. Substitute your configured port or database path if customized.
+Rollback backups are retained in `/var/backups/asl3-connection-logger/upgrade-*`.
+If an upgrade fails, retain the printed backup directory, inspect the error and
+its `state.json` / `ROLLBACK.txt`, and **do not blindly rerun**. Resolve interrupted
+or incomplete recovery first; never copy a backup over the live database.
+See [detailed upgrade and recovery instructions](docs/web-dashboard.md#upgrading-an-existing-installation).
+
 ### View your reports
 
 Open the following address in a web browser:
