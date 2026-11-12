@@ -59,3 +59,11 @@ hash. Upgrade verification requires that snapshot to match the incoming wheel;
 checking `/api/version` or the installed Python package alone is insufficient.
 The old public v0.2.0 dashboard can be restored without this new endpoint.
 Version endpoints do not open the database.
+
+Installed content verification reads the wheel's raw `RECORD` manifest so that
+missing owned files fail verification. Untracked `.bak` maintenance files left
+inside the package by earlier installations do not describe the release and are
+excluded from the installed digest. A `.bak` file actually shipped in the wheel
+is always checked. All other unexpected code or resource files still affect the
+digest; this is not a manifest-only allowlist. Source checkouts without matching
+installed-wheel ownership metadata retain the strict directory scan.

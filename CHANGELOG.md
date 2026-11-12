@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- Match wheel and installed content digests despite untracked `.bak` leftovers;
+  retain verification of owned, modified, missing, and unexpected application files.
+
 ## 0.2.1
 
 - Default the dashboard local-node input to the lowest locally configured node,
