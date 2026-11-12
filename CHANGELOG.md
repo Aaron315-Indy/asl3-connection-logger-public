@@ -1,12 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.2.4
 
 - Support transactional upgrades from public v0.1.0 without identity APIs or
   metadata units. Verify backups before probing HTTP endpoints and report exact URLs.
 - Preserve environment ownership/modes and retain the schema-2 marker while adding
   metadata, so original callbacks keep logging after rollback without a DB restore.
-- Add real legacy wheel/HTTP/SQLite integration and failure/rollback regressions.
+- Add real v0.1.0 and v0.2.3 wheel/HTTP/SQLite upgrade, repeat-upgrade and
+  failure/rollback regressions. Disposable owner tests honor `TMPDIR`.
 
 ## 0.2.2
 

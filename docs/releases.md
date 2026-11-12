@@ -3,7 +3,8 @@
 The authoritative Semantic Versioning source is
 `src/asl3_connection_logger/_version.py:VERSION`. Packaging reads this same
 constant. The historical installed and initial public version was 0.1.0;
-the incoming release is 0.2.1 (based on public 0.2.0). Development versions use an X.Y.Z-dev suffix
+release 0.2.4 adds direct legacy-upgrade compatibility. Development versions use
+an X.Y.Z-dev suffix
 plus the commit and dirty indicator. Python package metadata normalizes
 development suffixes to PEP 440.
 The application consistently displays the original SemVer spelling.

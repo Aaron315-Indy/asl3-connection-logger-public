@@ -81,5 +81,6 @@ must fail with its exact URL and retained backups.
 
 Static metadata units use real `systemd-analyze verify`. No production systemd
 manager or Asterisk is controlled, and no metadata directory requests are made.
-The incoming wheel is built from the uncommitted development source reporting
-0.2.3; it does not replace or retag the immutable published v0.2.3 release.
+The incoming wheel is built from the current source version. The original
+v0.2.3 upgrader and public v0.1.0/v0.2.3 fixtures remain immutable. The automated
+service fixture does not replace a real development-node service upgrade check.

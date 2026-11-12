@@ -266,14 +266,14 @@ def legacy_machine(legacy_sources, tmp_path, monkeypatch):
             sock.bind(('127.0.0.1', machine.port))
 
 
-def assert_history_and_configuration(machine):
+def assert_history_and_configuration(machine, schema=2):
     rows = history(machine.database)
     for table, before in machine.before.items(): assert rows[table][:len(before)] == before
     after = machine.database.stat()
     assert (after.st_ino, after.st_uid, after.st_gid, after.st_mode) == (
         machine.db_stat.st_ino, machine.db_stat.st_uid, machine.db_stat.st_gid, machine.db_stat.st_mode)
     with sqlite3.connect(machine.database) as db:
-        assert db.execute('SELECT version FROM schema_version').fetchone() == (2,)
+        assert db.execute('SELECT version FROM schema_version').fetchone() == (schema,)
     for path, expected in machine.sentinels.items():
         info = path.stat()
         assert (path.read_bytes(), info.st_mode, info.st_uid, info.st_gid) == expected
@@ -302,7 +302,8 @@ def test_real_legacy_reproduces_old_404_and_upgrades_then_repeats(legacy_machine
     state = json.loads((backup / 'state.json').read_text())
     assert state['previous']['legacy']['version_endpoint'] is False
     assert state['state'] == 'complete'
-    assert http(machine.port, '/api/version')['version'] == '0.2.3'
+    assert http(machine.port, '/api/version')['version'] == machine.upgrade.version_from_source(
+        (machine.source / 'src/asl3_connection_logger/_version.py').read_text())
     assert http(machine.port, '/api/release') == state['expected']
     assert machine.upgrade.installed_release(machine.python) == state['expected']
     assert history(backup / 'connections.db') == machine.before
@@ -387,9 +388,9 @@ def test_real_migration_runs_as_database_owner_and_preserves_v2(legacy_sources):
                              '--no-deps', '--wheel-dir', str(wheels), str(source)],
                             env=env, cwd=root, stderr=subprocess.STDOUT)
     wheel, = wheels.glob('*.whl')
-    # Parent permissions must permit the deliberately unprivileged numeric UID
-    # to traverse to its disposable DB and the installed interpreter.
-    with tempfile.TemporaryDirectory(prefix='.legacy-owner-', dir=ROOT) as directory:
+    # Honor TMPDIR rather than putting a venv in the source checkout. The temp
+    # root must allow traversal by this deliberately unprivileged numeric UID.
+    with tempfile.TemporaryDirectory(prefix='asl3-legacy-owner-') as directory:
         sandbox = Path(directory); sandbox.chmod(0o755)
         python = sandbox / 'venv/bin/python'
         subprocess.check_output([sys.executable, '-m', 'venv', str(sandbox / 'venv')], env=env, stderr=subprocess.STDOUT)
@@ -414,3 +415,62 @@ def test_real_migration_runs_as_database_owner_and_preserves_v2(legacy_sources):
             assert db.execute('SELECT version FROM schema_version').fetchone() == (2,)
             assert db.execute("SELECT count(*) FROM sqlite_master WHERE name IN "
                               "('node_metadata','node_metadata_overrides')").fetchone() == (2,)
+
+
+@pytest.fixture(scope='module')
+def public_v023_wheel(legacy_sources):
+    root, _, _, env, _ = legacy_sources
+    source = root / 'public-023'; source.mkdir()
+    archive = subprocess.check_output(['git', 'archive', 'v0.2.3'], cwd=ROOT)
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+        tar.extractall(source, filter='data')
+    wheels = root / 'v023-wheels'; wheels.mkdir()
+    subprocess.check_output([sys.executable, '-m', 'pip', 'wheel', '--no-build-isolation',
+                             '--no-deps', '--wheel-dir', str(wheels), str(source)],
+                            cwd=root, env=env, stderr=subprocess.STDOUT)
+    wheel, = wheels.glob('*.whl')
+    assert wheel.name.startswith('asl3_connection_logger-0.2.3-')
+    return wheel
+
+
+@pytest.mark.parametrize('fail_verification', [False, True])
+def test_real_v023_upgrade_repeat_and_verified_rollback(legacy_machine, public_v023_wheel, fail_verification):
+    machine = legacy_machine
+    machine.stop()
+    subprocess.check_output([str(machine.python), '-m', 'pip', 'install', '--no-deps',
+                             '--force-reinstall', str(public_v023_wheel)],
+                            env=machine.env, cwd=machine.install, stderr=subprocess.STDOUT)
+    machine.python_run('from asl3_connection_logger.database import initialize_database; '
+                       f'initialize_database({str(machine.database)!r})')
+    machine.start()
+    previous = http(machine.port, '/api/release')
+    previous_version = http(machine.port, '/api/version')
+    assert previous['version'] == '0.2.3'
+    assert machine.upgrade.installed_release(machine.python) == previous
+    if fail_verification:
+        machine.failure = 'verification'
+        with pytest.raises(RuntimeError, match='Previous dashboard restored and verified'):
+            machine.upgrade.upgrade(machine.source, machine.install, machine.backups)
+        backup, = machine.backups.glob('upgrade-*')
+        state = json.loads((backup / 'state.json').read_text())
+        assert state['state'] == 'rolled-back' and state['dashboard_verified'] is True
+        assert http(machine.port, '/api/release') == previous
+        assert http(machine.port, '/api/version') == previous_version
+        assert machine.upgrade.installed_release(machine.python) == previous
+        assert not any((machine.units / unit).exists() for unit in machine.upgrade.UNITS)
+        machine.callback('777004')
+    else:
+        backup = machine.upgrade.upgrade(machine.source, machine.install, machine.backups)
+        state = json.loads((backup / 'state.json').read_text())
+        assert state['state'] == 'complete'
+        assert http(machine.port, '/api/release') == state['expected']
+        assert machine.upgrade.installed_release(machine.python) == state['expected']
+        assert state['expected']['version'] == machine.upgrade.version_from_source(
+            (machine.source / 'src/asl3_connection_logger/_version.py').read_text())
+        assert machine.process.pid != machine.processes[0].pid
+        pid = machine.process.pid
+        again = machine.upgrade.upgrade(machine.source, machine.install, machine.backups)
+        assert json.loads((again / 'state.json').read_text())['state'] == 'complete'
+        assert machine.process.pid == pid
+    assert history(backup / 'connections.db') == machine.before
+    assert_history_and_configuration(machine, schema=3)
