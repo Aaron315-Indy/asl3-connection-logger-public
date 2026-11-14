@@ -1,4 +1,4 @@
-"""Real public v0.1.0 wheels, SQLite and HTTP; only service control is a fixture.
+"""Real v0.2.3 to v0.2.4 wheels, SQLite and HTTP; service control is a fixture.
 
 No production service manager, node, configuration or database is accessed.
 """
@@ -14,15 +14,13 @@ import sqlite3
 import subprocess
 import sys
 import tarfile
-import tempfile
 import time
-from urllib.error import HTTPError, URLError
+from urllib.error import URLError
 from urllib.request import urlopen
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-LEGACY_COMMIT = 'bbb8809'  # Public 0.1.0, including the static asset packaging fix.
 
 
 def load(path, name):
@@ -45,13 +43,13 @@ def history(path):
 
 
 @pytest.fixture(scope='module')
-def legacy_sources(tmp_path_factory):
+def upgrade_sources(tmp_path_factory):
     if os.geteuid() != 0:
         pytest.skip('Real upgrade credential/backup checks require root in disposable fixtures')
-    root = tmp_path_factory.mktemp('legacy-upgrade')
-    old, incoming = root / 'public-010', root / 'incoming'
+    root = tmp_path_factory.mktemp('v023-upgrade')
+    old, incoming = root / 'public-023', root / 'incoming'
     old.mkdir(); incoming.mkdir()
-    archive = subprocess.check_output(['git', 'archive', LEGACY_COMMIT], cwd=ROOT)
+    archive = subprocess.check_output(['git', 'archive', 'v0.2.3'], cwd=ROOT)
     with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
         tar.extractall(old, filter='data')
     for name in ('pyproject.toml', 'setup.py', 'README.md', 'LICENSE'):
@@ -69,24 +67,22 @@ def legacy_sources(tmp_path_factory):
                              '--no-deps', '--wheel-dir', str(wheels), str(old)],
                             cwd=root, env=env, stderr=subprocess.STDOUT)
     wheel, = wheels.glob('*.whl')
-    assert wheel.name.startswith('asl3_connection_logger-0.1.0-')
-    original = root / 'stable-upgrade.py'
-    original.write_bytes(subprocess.check_output(['git', 'show', 'v0.2.3:scripts/upgrade.py'], cwd=ROOT))
+    assert wheel.name.startswith('asl3_connection_logger-0.2.3-')
     try:
-        yield root, incoming, wheel, env, original
+        yield root, incoming, wheel, env
     finally:
         shutil.rmtree(root)
 
 
-class LegacyMachine:
-    def __init__(self, root, source, env):
+class UpgradeMachine:
+    def __init__(self, root, source, env, backup_root):
         self.root, self.source, self.env = root, source, env
         self.install = root / 'installed app'
         self.units = root / 'units'; self.units.mkdir()
-        self.backups = root / 'backups'; self.backups.mkdir(mode=0o700)
+        self.backups = backup_root / 'backups'; self.backups.mkdir(mode=0o700)
         self.database = root / 'connections.db'
         self.python = self.install / '.venv/bin/python'
-        self.upgrade = load(source / 'scripts/upgrade.py', 'legacy_integration_upgrade')
+        self.upgrade = load(source / 'scripts/upgrade.py', 'integration_upgrade')
         self.upgrade.UNIT_DIR = self.units
         self.original_run = self.upgrade.run
         self.upgrade.run = self.run
@@ -212,13 +208,13 @@ web.main()
 
 
 @pytest.fixture
-def legacy_machine(legacy_sources, tmp_path, monkeypatch):
-    _, source, wheel, env, original = legacy_sources
+def v023_machine(upgrade_sources, tmp_path, external_tmp_path, monkeypatch):
+    _, source, wheel, env = upgrade_sources
     # Only the current module's subprocess environment is altered for offline builds.
     for name in ('PIP_NO_INDEX', 'PIP_NO_BUILD_ISOLATION', 'PIP_NO_CACHE_DIR',
                  'PIP_DISABLE_PIP_VERSION_CHECK', 'PIP_CONFIG_FILE'):
         monkeypatch.setenv(name, env[name])
-    machine = LegacyMachine(tmp_path, source, env)
+    machine = UpgradeMachine(tmp_path, source, env, external_tmp_path)
     subprocess.check_output([sys.executable, '-m', 'venv', '--system-site-packages',
                              str(machine.install / '.venv')], env=env, stderr=subprocess.STDOUT)
     subprocess.check_output([str(machine.python), '-m', 'pip', 'install', '--no-deps', str(wheel)],
@@ -247,11 +243,9 @@ def legacy_machine(legacy_sources, tmp_path, monkeypatch):
     (machine.install / '.venv/operator-link').symlink_to('operator-private')
     machine.before = history(machine.database)
     machine.db_stat = machine.database.stat()
-    machine.original = original
     machine.sentinels = {path: (path.read_bytes(), path.stat().st_mode, path.stat().st_uid, path.stat().st_gid)
                          for path in (service, override, *(tmp_path / name for name in
                                      ('rpt.conf', 'apache.conf', 'auth.htpasswd', 'callback-wrapper')))}
-    machine.legacy_identity = machine.upgrade.installed_release(machine.python)
     keeper = sqlite3.connect(machine.database)
     keeper.execute('PRAGMA journal_mode=WAL')
     try:
@@ -266,7 +260,7 @@ def legacy_machine(legacy_sources, tmp_path, monkeypatch):
             sock.bind(('127.0.0.1', machine.port))
 
 
-def assert_history_and_configuration(machine, schema=2):
+def assert_history_and_configuration(machine, schema=3):
     rows = history(machine.database)
     for table, before in machine.before.items(): assert rows[table][:len(before)] == before
     after = machine.database.stat()
@@ -283,172 +277,15 @@ def assert_history_and_configuration(machine, schema=2):
     assert os.readlink(machine.install / '.venv/operator-link') == 'operator-private'
 
 
-def test_real_legacy_reproduces_old_404_and_upgrades_then_repeats(legacy_machine):
-    machine = legacy_machine
-    old = load(machine.original, 'old_stable_upgrade')
-    requests = []
-    original_get = old.get_api
-    def traced(port, path):
-        requests.append(path)
-        return original_get(port, path)
-    old.get_api = traced
-    with pytest.raises(HTTPError) as error:
-        old.dashboard_state(machine.port)
-    assert requests == ['/health', '/api/version']
-    assert error.value.code == 404 and error.value.url.endswith('/api/version')
-    assert not list(machine.backups.glob('upgrade-*'))
-    print('\nPROVEN legacy reproduction: GET /health -> 200; GET /api/version -> 404; no backup created.')
-    backup = machine.upgrade.upgrade(machine.source, machine.install, machine.backups)
-    state = json.loads((backup / 'state.json').read_text())
-    assert state['previous']['legacy']['version_endpoint'] is False
-    assert state['state'] == 'complete'
-    assert http(machine.port, '/api/version')['version'] == machine.upgrade.version_from_source(
-        (machine.source / 'src/asl3_connection_logger/_version.py').read_text())
-    assert http(machine.port, '/api/release') == state['expected']
-    assert machine.upgrade.installed_release(machine.python) == state['expected']
-    assert history(backup / 'connections.db') == machine.before
-    for unit in machine.upgrade.UNITS: assert (machine.units / unit).is_file()
-    assert machine.timer_active == 'active' and machine.timer_enabled == 'enabled'
-    assert_history_and_configuration(machine)
-    pid = machine.process.pid
-    machine.callback('777002')
-    again = machine.upgrade.upgrade(machine.source, machine.install, machine.backups)
-    assert json.loads((again / 'state.json').read_text())['state'] == 'complete'
-    assert machine.process.pid == pid
-    assert_history_and_configuration(machine)
-    assert len(history(machine.database)['connection_events']) == 4
-
-
-@pytest.mark.parametrize('failure', ['pip', 'restart', 'verification', 'migration', 'timer'])
-def test_real_legacy_failure_restores_original_and_old_callbacks_keep_logging(legacy_machine, monkeypatch, failure):
-    machine = legacy_machine
-    machine.failure = failure
-    if failure == 'migration':
-        def fail(python, database):
-            code = """import sqlite3, sys
-from asl3_connection_logger import database as module
-connect = sqlite3.connect
-def denied_connect(*args, **kwargs):
-    db = connect(*args, **kwargs)
-    def authorize(action, name, *rest):
-        if action == sqlite3.SQLITE_CREATE_TABLE and name == 'node_metadata_overrides':
-            return sqlite3.SQLITE_DENY
-        return sqlite3.SQLITE_OK
-    db.set_authorizer(authorize)
-    return db
-module.sqlite3.connect = denied_connect
-module.initialize_database(sys.argv[1])
-"""
-            machine.upgrade.run(str(python), '-c', code, str(database))
-        monkeypatch.setattr(machine.upgrade, 'migrate_legacy_database', fail)
-    with pytest.raises(RuntimeError, match='Previous dashboard restored and verified'):
-        machine.upgrade.upgrade(machine.source, machine.install, machine.backups)
-    backup, = machine.backups.glob('upgrade-*')
-    state = json.loads((backup / 'state.json').read_text())
-    assert state['state'] == 'rolled-back' and state['dashboard_verified'] is True
-    assert machine.upgrade.installed_version(machine.python)['version'] == '0.1.0'
-    assert machine.upgrade.installed_release(machine.python) == machine.legacy_identity
-    assert http(machine.port, '/health') == {'status': 'ok'}
-    with pytest.raises(HTTPError) as error: http(machine.port, '/api/version')
-    assert error.value.code == 404
-    assert not any((machine.units / unit).exists() for unit in machine.upgrade.UNITS)
-    assert machine.timer_active == 'inactive'
-    assert not (machine.units / 'timers.target.wants' / machine.upgrade.TIMER).is_symlink()
-    if failure == 'migration':
-        with sqlite3.connect(machine.database) as db:
-            assert not db.execute("SELECT name FROM sqlite_master WHERE name LIKE 'node_metadata%'").fetchall()
-    assert_history_and_configuration(machine)
-    # Crucial: run ORIGINAL 0.1.0 code against the same database after rollback.
-    machine.callback('777003')
-    assert_history_and_configuration(machine)
-    expected = 5 if failure == 'pip' else 4
-    assert len(history(machine.database)['connection_events']) == expected
-    assert history(backup / 'connections.db') == machine.before
-
-
-def test_real_legacy_missing_history_api_reports_exact_url_and_retains_backups(legacy_machine):
-    machine = legacy_machine
-    machine.stop(); machine.start(bad_data=True)
-    with pytest.raises(RuntimeError) as error:
-        machine.upgrade.upgrade(machine.source, machine.install, machine.backups)
-    assert f'GET http://127.0.0.1:{machine.port}/api/dashboard?limit=1' in str(error.value)
-    backup, = machine.backups.glob('upgrade-*')
-    assert json.loads((backup / 'state.json').read_text())['state'] == 'preparation-failed'
-    assert history(backup / 'connections.db') == machine.before
-    assert machine.upgrade.installed_release(machine.python) == machine.legacy_identity
-    assert not any(args[1:4] == ('-m', 'pip', 'install') for args in machine.calls)
-    assert_history_and_configuration(machine)
-
-
-def test_real_migration_runs_as_database_owner_and_preserves_v2(legacy_sources):
-    root, source, _, env, _ = legacy_sources
-    upgrade = load(source / 'scripts/upgrade.py', 'owner_migration_upgrade')
-    wheels = root / 'owner-wheels'; wheels.mkdir()
-    subprocess.check_output([sys.executable, '-m', 'pip', 'wheel', '--no-build-isolation',
-                             '--no-deps', '--wheel-dir', str(wheels), str(source)],
-                            env=env, cwd=root, stderr=subprocess.STDOUT)
-    wheel, = wheels.glob('*.whl')
-    # Honor TMPDIR rather than putting a venv in the source checkout. The temp
-    # root must allow traversal by this deliberately unprivileged numeric UID.
-    with tempfile.TemporaryDirectory(prefix='asl3-legacy-owner-') as directory:
-        sandbox = Path(directory); sandbox.chmod(0o755)
-        python = sandbox / 'venv/bin/python'
-        subprocess.check_output([sys.executable, '-m', 'venv', str(sandbox / 'venv')], env=env, stderr=subprocess.STDOUT)
-        subprocess.check_output([str(python), '-m', 'pip', 'install', '--no-deps', str(wheel)],
-                                env=env, cwd=sandbox, stderr=subprocess.STDOUT)
-        data = sandbox / 'data'; data.mkdir(mode=0o750); os.chown(data, 12345, 12346)
-        database = data / 'connections.db'
-        legacy = load(root / 'public-010/src/asl3_connection_logger/database.py', 'owner_legacy_database')
-        legacy.initialize_database(database)
-        with sqlite3.connect(database) as db:
-            db.execute("INSERT INTO connection_events(local_node,remote_node,event_type,event_timestamp) "
-                       "VALUES ('658860','2000','connect','2026-01-01T00:00:00+00:00')")
-        os.chown(database, 12345, 12346); database.chmod(0o640)
-        before = history(database)
-        info = database.stat()
-        upgrade.migrate_legacy_database(python, database)
-        assert history(database) == before
-        after = database.stat()
-        assert (after.st_ino, after.st_uid, after.st_gid, after.st_mode) == (
-            info.st_ino, 12345, 12346, info.st_mode)
-        with sqlite3.connect(database) as db:
-            assert db.execute('SELECT version FROM schema_version').fetchone() == (2,)
-            assert db.execute("SELECT count(*) FROM sqlite_master WHERE name IN "
-                              "('node_metadata','node_metadata_overrides')").fetchone() == (2,)
-
-
-@pytest.fixture(scope='module')
-def public_v023_wheel(legacy_sources):
-    root, _, _, env, _ = legacy_sources
-    source = root / 'public-023'; source.mkdir()
-    archive = subprocess.check_output(['git', 'archive', 'v0.2.3'], cwd=ROOT)
-    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
-        tar.extractall(source, filter='data')
-    wheels = root / 'v023-wheels'; wheels.mkdir()
-    subprocess.check_output([sys.executable, '-m', 'pip', 'wheel', '--no-build-isolation',
-                             '--no-deps', '--wheel-dir', str(wheels), str(source)],
-                            cwd=root, env=env, stderr=subprocess.STDOUT)
-    wheel, = wheels.glob('*.whl')
-    assert wheel.name.startswith('asl3_connection_logger-0.2.3-')
-    return wheel
-
-
-@pytest.mark.parametrize('fail_verification', [False, True])
-def test_real_v023_upgrade_repeat_and_verified_rollback(legacy_machine, public_v023_wheel, fail_verification):
-    machine = legacy_machine
-    machine.stop()
-    subprocess.check_output([str(machine.python), '-m', 'pip', 'install', '--no-deps',
-                             '--force-reinstall', str(public_v023_wheel)],
-                            env=machine.env, cwd=machine.install, stderr=subprocess.STDOUT)
-    machine.python_run('from asl3_connection_logger.database import initialize_database; '
-                       f'initialize_database({str(machine.database)!r})')
-    machine.start()
+@pytest.mark.parametrize('failure', [None, 'pip', 'restart', 'verification', 'timer'])
+def test_real_v023_upgrade_repeat_and_verified_rollback(v023_machine, failure):
+    machine = v023_machine
     previous = http(machine.port, '/api/release')
     previous_version = http(machine.port, '/api/version')
     assert previous['version'] == '0.2.3'
     assert machine.upgrade.installed_release(machine.python) == previous
-    if fail_verification:
-        machine.failure = 'verification'
+    if failure:
+        machine.failure = failure
         with pytest.raises(RuntimeError, match='Previous dashboard restored and verified'):
             machine.upgrade.upgrade(machine.source, machine.install, machine.backups)
         backup, = machine.backups.glob('upgrade-*')
@@ -458,7 +295,10 @@ def test_real_v023_upgrade_repeat_and_verified_rollback(legacy_machine, public_v
         assert http(machine.port, '/api/version') == previous_version
         assert machine.upgrade.installed_release(machine.python) == previous
         assert not any((machine.units / unit).exists() for unit in machine.upgrade.UNITS)
+        assert machine.timer_active == 'inactive'
+        assert not (machine.units / 'timers.target.wants' / machine.upgrade.TIMER).is_symlink()
         machine.callback('777004')
+        assert len(history(machine.database)['connection_events']) == (5 if failure == 'pip' else 4)
     else:
         backup = machine.upgrade.upgrade(machine.source, machine.install, machine.backups)
         state = json.loads((backup / 'state.json').read_text())
@@ -472,5 +312,21 @@ def test_real_v023_upgrade_repeat_and_verified_rollback(legacy_machine, public_v
         again = machine.upgrade.upgrade(machine.source, machine.install, machine.backups)
         assert json.loads((again / 'state.json').read_text())['state'] == 'complete'
         assert machine.process.pid == pid
+        assert len(history(machine.database)['connection_events']) == 3
     assert history(backup / 'connections.db') == machine.before
     assert_history_and_configuration(machine, schema=3)
+
+
+def test_real_v023_missing_history_api_retains_backups(v023_machine):
+    machine = v023_machine
+    previous = machine.upgrade.installed_release(machine.python)
+    machine.stop(); machine.start(bad_data=True)
+    with pytest.raises(RuntimeError) as error:
+        machine.upgrade.upgrade(machine.source, machine.install, machine.backups)
+    assert f'GET http://127.0.0.1:{machine.port}/api/dashboard?limit=1' in str(error.value)
+    backup, = machine.backups.glob('upgrade-*')
+    assert json.loads((backup / 'state.json').read_text())['state'] == 'preparation-failed'
+    assert history(backup / 'connections.db') == machine.before
+    assert machine.upgrade.installed_release(machine.python) == previous
+    assert not any(args[1:4] == ('-m', 'pip', 'install') for args in machine.calls)
+    assert_history_and_configuration(machine)

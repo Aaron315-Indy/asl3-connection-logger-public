@@ -2,12 +2,14 @@
 
 ## 0.2.4
 
-- Support transactional upgrades from public v0.1.0 without identity APIs or
-  metadata units. Verify backups before probing HTTP endpoints and report exact URLs.
-- Preserve environment ownership/modes and retain the schema-2 marker while adding
-  metadata, so original callbacks keep logging after rollback without a DB restore.
-- Add real v0.1.0 and v0.2.3 wheel/HTTP/SQLite upgrade, repeat-upgrade and
-  failure/rollback regressions. Disposable owner tests honor `TMPDIR`.
+- Discontinue v0.1.0 upgrade support. Reject unsupported installed versions with
+  a clear error before HTTP probing, package installation or database migration.
+- Remove v0.1.0 identity/endpoint fallbacks, migration and rollback compatibility,
+  historical package fixtures, and schema-2 marker retention.
+- Maintain v0.2.3 → v0.2.4 upgrade, repeat-upgrade and rollback coverage using
+  real v0.2.3 wheels, HTTP and SQLite with disposable service-control fixtures.
+- Preserve verified environment ownership/modes, protected backups outside Git,
+  exact HTTP error URLs and the live database during rollback.
 
 ## 0.2.2
 

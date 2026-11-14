@@ -42,6 +42,10 @@ Default:
 
 ## Schema Version
 
-Initial schema version: 1
+Current schema version: 3. Version 2 added session runtime IDs; version 3 adds
+cached metadata and metadata overrides. Database initialization migrates older
+schema markers transactionally and records version 3 after successful migration.
 
-Database migrations are not yet implemented.
+Schema migration capability does not establish application upgrade support.
+Connection Logger v0.2.4 rejects v0.1.0 installations before migration; see
+[supported upgrade starting points](releases.md#supported-upgrade-starting-points).

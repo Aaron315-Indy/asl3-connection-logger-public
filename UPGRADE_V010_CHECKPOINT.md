@@ -1,4 +1,79 @@
-# Completed in working tree: transactional v0.1.0 upgrade compatibility
+# Current pause: v0.2.4 release validation, 2026-11-13
+
+The user requested a pause with checkpoint. Read this section first; older notes
+below are historical and contain obsolete workspace paths and Git state.
+
+- Durable checkout: `/opt/asl3-connection-logger-release-v024`.
+- HEAD: `2eba917f73f1a3db9f673cc0ef186ea0471f186a`. Git was clean on resume.
+  This checkpoint is the only change made during this session. No code changes.
+- `/tmp/asl3-v021` was lost after reboot. Do not use or recreate it as the
+  development workspace.
+- Preserve existing databases and backups. Do not modify Asterisk, production
+  systems, or published AllStarLink source. No push, publish, tag, or deployment
+  without authorization. No installation or service changes were made.
+
+## Missing service investigation completed before any changes
+
+Read-only systemd inspection found `asl3-connection-logger.service` not-found,
+but `asl3-connection-dashboard.service` loaded and active, with its base unit at
+`/etc/systemd/system/asl3-connection-dashboard.service` and installed Python at
+`/opt/asl3-connection-logger/.venv/bin/python`.
+
+The package name was mistaken for the service name: current and public v0.1.0
+(`bbb8809`) dashboard installers use `SERVICE="asl3-connection-dashboard"`;
+the upgrader uses the same name. Repository/history searches found no installer
+for `asl3-connection-logger.service`. Logging runs through the event callback
+(`scripts/asl3-connection-event` / `scripts/asl3-event-hook`), not a daemon with
+that name. There is no evidence of upgrade tests deleting an expected logger
+unit. Do not install a replacement unit or change services to address this name.
+Actual systemd service control remains outside disposable integration coverage.
+
+## Validation evidence and interruption
+
+- Existing retained report `/var/tmp/asl3-logger-tests/v024-isolated-results.xml`:
+  **264 passed**, zero failures/errors/skips, 824.983 seconds, Nov 12.
+  Its `candidate-provenance.json` identifies a dirty 0.2.4 candidate based on
+  `9efb54e`, not an exact clean build of `2eba917`. Preserve both files.
+- Fresh full-suite run used `TMPDIR=/var/tmp/asl3-logger-tests`, basetemp
+  `pytest-v024-resume-2eba917`. A daemon restart interrupted it after at least
+  11 passing progress dots; no completed XML report exists. Do not claim it passed.
+- Restart left disposable dashboard PID 6252 orphaned. Its exact executable
+  under that test directory was checked before SIGTERM; it was stopped.
+- Recovery run used basetemp `pytest-v024-resume-2eba917-recovery` and report
+  `/var/tmp/asl3-logger-tests/v024-resume-2eba917-recovery.xml`. User pause stopped
+  it with Ctrl-C: XML records **8 tests**, zero failures/errors/skips, but the
+  suite is INCOMPLETE. Interruption caused pytest teardown KeyboardInterrupt /
+  stash KeyError; process exit was 1. This is not a completed release result.
+- Final host process inspection found only installed dashboard PID 635 and node
+  watcher PID 996 among Python processes, with no remaining disposable Python
+  dashboard or pytest process. Neither installed process was changed.
+- Interrupted test trees/evidence were preserved. Do not reuse their basetemp
+  paths: pytest may delete prior contents. Pick a fresh suffix on next resume.
+- `git diff --check` passed before this checkpoint update.
+- Exact-HEAD local artifact build was proposed but the tool call was aborted by
+  the daemon restart. `/var/tmp/asl3-logger-tests/release-2eba917` does not exist;
+  no new source archive, wheel, or sdist was built by that command.
+
+## Next resume
+
+1. Read this checkpoint and inspect Git/process state before repeating actions.
+2. Finish full suite in a NEW disposable directory with
+   `TMPDIR=/var/tmp/asl3-logger-tests PYTHONDONTWRITEBYTECODE=1 python3 -m pytest
+   -q --tb=short --basetemp=/var/tmp/asl3-logger-tests/pytest-v024-resume-NEXT
+   -o cache_dir=/var/tmp/asl3-logger-tests/pytest-cache-resume
+   --junitxml=/var/tmp/asl3-logger-tests/v024-resume-NEXT.xml`.
+   Escalation is needed for `/var/tmp` writes, localhost fixtures and unit
+   verification. Integration service control is strictly a fixture.
+3. Prioritize existing real v0.1.0/v0.2.3 wheel/HTTP/SQLite upgrade, repeat and
+   rollback validation over new test infrastructure. That implementation is
+   already committed at HEAD; do not repeat completed implementation work.
+4. If needed, build local source/wheel/sdist artifacts from exact committed HEAD
+   with `scripts/build-release.py`, keeping them under the requested temp root
+   and recording provenance. Do not install, tag, push, publish, or deploy.
+5. Record final results and limits; run `git diff --check`. Stop for release
+   authorization, without making production changes.
+
+# Historical completion: transactional v0.1.0 upgrade compatibility
 
 Resumed at the user's request and completed without committing or deploying.
 The original pause notes below are retained as investigation history; see the

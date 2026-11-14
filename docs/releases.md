@@ -3,7 +3,7 @@
 The authoritative Semantic Versioning source is
 `src/asl3_connection_logger/_version.py:VERSION`. Packaging reads this same
 constant. The historical installed and initial public version was 0.1.0;
-release 0.2.4 adds direct legacy-upgrade compatibility. Development versions use
+release 0.2.4 formally discontinues v0.1.0 upgrade support. Development versions use
 an X.Y.Z-dev suffix
 plus the commit and dirty indicator. Python package metadata normalizes
 development suffixes to PEP 440.
@@ -71,30 +71,29 @@ installed-wheel ownership metadata retain the strict directory scan.
 
 ### Supported upgrade starting points
 
-Direct upgrades support the public v0.1.0 dashboard installation (distribution
-version 0.1.0, database schema 2) and the v0.2.x series. Early backend-only/schema-1
-installations and incomplete or unhealthy installations are refused safely; do
-not relabel a database schema or install over it to bypass preflight checks.
+Direct upgrades support stable v0.2.x installations, including v0.2.3 → v0.2.4
+and repeated v0.2.4 upgrades. **v0.1.0 is unsupported.** Other versions outside
+the stable v0.2.x series are also refused. Installed distribution metadata is
+checked before importing application identity modules, probing HTTP, creating an
+upgrade snapshot or changing installed files. An unsupported version receives a
+clear error; no database migration is attempted.
 
-The v0.1.0 package has no version module, frozen build metadata, `/api/version`,
-or `/api/release`, and predates the metadata timer. Setup obtains its version
-from installed distribution metadata, captures its package content fingerprint,
-and requires a working history API. Missing health/identity endpoints are
-tolerated only for this known legacy package, not for modern installations.
-All HTTP diagnostics identify the exact requested URL. SQLite and environment
-backups and unit snapshots are prepared before HTTP capability probing.
+Supported installations require a healthy dashboard with `/health`,
+`/api/version` and a working history API. `/api/release` is required except for
+public v0.2.0, which predates that endpoint. The incoming v0.2.4 installation
+always requires strict version and release-content verification. HTTP diagnostics
+identify the exact URL. SQLite/environment backups and unit snapshots precede
+HTTP checks and package installation for supported upgrades.
 
-Metadata tables are added transactionally, as the database owner, without
-changing existing schema-2 connection records or their version marker. New
-databases still use schema 3. Retaining marker 2 is essential: original v0.1.0
-callbacks reject marker 3, including after a Python-environment rollback.
-Ordinary rollback preserves the live database and any post-backup events;
-additive metadata tables may remain and are harmless to the legacy application.
+The v0.1.0-specific package fingerprints, missing-endpoint fallbacks, owner-run
+migration and rollback capability checks have been removed. Database initialization
+uses schema 3; the old schema-2 marker is no longer retained for v0.1.0 callbacks.
+This does not authorize a v0.1.0 application upgrade. Do not relabel package or
+database versions, bypass preflight, or install over an unsupported installation.
+Preserve its history and backups; v0.2.4 provides no automated v0.1.0 migration.
 
-Rollback verifies the restored legacy package version, content, ownership and
-permissions, then restarts the original dashboard and verifies its original
-HTTP capabilities and history API. A legacy dashboard cannot provide an HTTP
-content attestation; that limitation does not relax verification of the incoming
-release: its installed content and running version/release identity must match
-the wheel. See the [upgrade investigation](legacy-upgrade.md) for source evidence
-and disposable integration coverage.
+The disposable integration tests build the actual v0.2.3 wheel directly and check
+upgrade/repeat behavior and rollback after pip installation, dashboard restart,
+release identity or timer activation failures. Original history, post-backup
+callback events, configuration, ownership, permissions and timer state remain
+verified. Rollback never restores a database snapshot over the live database.

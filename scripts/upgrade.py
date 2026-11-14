@@ -31,14 +31,13 @@ UNIT_DIR = Path('/etc/systemd/system')
 FINISHED = {'complete', 'rolled-back', 'preparation-failed', 'resolved'}
 
 
-def run(*args, cwd='/', uid=None, gid=None):
+def run(*args, cwd='/'):
     env = os.environ.copy()
     env.pop('PYTHONPATH', None)
     env.pop('PYTHONHOME', None)
     env['PYTHONDONTWRITEBYTECODE'] = '1'
-    credentials = {} if uid is None else {'user': uid, 'group': gid, 'extra_groups': []}
     return subprocess.check_output(args, cwd=cwd, env=env, text=True,
-                                   stderr=subprocess.STDOUT, **credentials).strip()
+                                   stderr=subprocess.STDOUT).strip()
 
 
 def integrity(path):
@@ -112,46 +111,31 @@ def wheel_release(wheel):
             'content_sha256': digest.hexdigest()}
 
 
+def require_supported_version(version):
+    if not re.fullmatch(r'0\.2\.[0-9]+', version):
+        raise RuntimeError(
+            f'Unsupported installed version {version}: upgrades require a stable '
+            'v0.2.x installation. v0.1.0 is unsupported; no migration was attempted.')
+
+
 def installed_version(python):
-    return json.loads(run(str(python), '-c', """import json
-try:
-    from asl3_connection_logger.version import version_info
-except ModuleNotFoundError as error:
-    if error.name != 'asl3_connection_logger.version':
-        raise
-    from importlib.metadata import version
-    installed = version('asl3-connection-logger')
-    if installed != '0.1.0':
-        raise RuntimeError('Missing version API support in unsupported package ' + installed)
-    info = {'version': installed, 'commit': None,
-            'build': {'type': 'legacy', 'built_at': None, 'dirty': False}}
-else:
-    info = version_info()
-print(json.dumps(info))"""))
+    # Read distribution metadata before importing modern application modules so
+    # unsupported packages fail clearly even when they lack identity modules.
+    version = run(str(python), '-c',
+                  "from importlib.metadata import version; print(version('asl3-connection-logger'))")
+    require_supported_version(version)
+    info = json.loads(run(str(python), '-c',
+        'import json; from asl3_connection_logger.version import version_info; '
+        'print(json.dumps(version_info()))'))
+    if info['version'] != version:
+        raise RuntimeError('Installed distribution and application versions differ')
+    return info
 
 
 def installed_release(python):
-    return json.loads(run(str(python), '-c', """import json
-try:
-    from asl3_connection_logger.release import release_identity
-except ModuleNotFoundError as error:
-    if error.name != 'asl3_connection_logger.release':
-        raise
-    from importlib.metadata import version
-    if version('asl3-connection-logger') != '0.1.0':
-        raise
-    import hashlib
-    from pathlib import Path
-    import asl3_connection_logger
-    root = Path(asl3_connection_logger.__file__).resolve().parent
-    digest = hashlib.sha256()
-    for path in sorted(root.rglob('*')):
-        if path.is_file() and '__pycache__' not in path.parts and path.suffix != '.pyc':
-            digest.update(path.relative_to(root).as_posix().encode() + bytes([0]) + path.read_bytes() + bytes([0]))
-    identity = {'version': '0.1.0', 'content_sha256': digest.hexdigest()}
-else:
-    identity = release_identity()
-print(json.dumps(identity))"""))
+    return json.loads(run(str(python), '-c',
+        'import json; from asl3_connection_logger.release import release_identity; '
+        'print(json.dumps(release_identity()))'))
 
 
 def get_api(port, path):
@@ -171,53 +155,32 @@ def public_identity(info):
             'dirty': info['build']['dirty']}
 
 
-def dashboard_state(port, legacy_version=None):
-    legacy_allowed = legacy_version is not None and legacy_version['version'] == '0.1.0'
-    health_endpoint = True
-    try:
-        if get_api(port, '/health').get('status') != 'ok':
-            raise RuntimeError('Dashboard health check failed')
-    except HTTPError as error:
-        if not legacy_allowed or error.code != 404:
-            raise
-        health_endpoint = False
-    # A missing health/identity endpoint never excuses a broken history API.
+def dashboard_state(port):
+    if get_api(port, '/health').get('status') != 'ok':
+        raise RuntimeError('Dashboard health check failed')
     data = get_api(port, '/api/dashboard?limit=1')
     if not isinstance(data, dict) or not isinstance(data.get('sessions'), list):
         raise RuntimeError('Dashboard data API returned an invalid response')
-    version_endpoint = True
-    try:
-        version = get_api(port, '/api/version')
-    except HTTPError as error:
-        if not legacy_allowed or error.code != 404:
-            raise
-        version_endpoint = False
-        version = legacy_version
+    version = get_api(port, '/api/version')
+    require_supported_version(version['version'])
     try:
         release = get_api(port, '/api/release')
     except HTTPError as error:
-        if error.code != 404:
+        if error.code != 404 or version['version'] != '0.2.0':
             raise
-        release = None  # Public v0.1.0 and v0.2.0 lack this endpoint.
-    result = {'version': version, 'release': release}
-    if legacy_allowed:
-        if release is not None:
-            raise RuntimeError('Legacy installation is serving an unexpected release identity')
-        result['legacy'] = {'health_endpoint': health_endpoint, 'version_endpoint': version_endpoint}
-    return result
+        release = None  # Public v0.2.0 predates this endpoint.
+    return {'version': version, 'release': release}
 
 
 def verify_api(port, expected):
     last_error = None
     for attempt in range(30):
         try:
-            actual = dashboard_state(port, expected['version'] if expected.get('legacy') else None)
+            actual = dashboard_state(port)
             if public_identity(actual['version']) != public_identity(expected['version']):
                 raise RuntimeError('Dashboard version API identity mismatch')
             if actual['release'] != expected['release']:
                 raise RuntimeError('Running dashboard release content mismatch')
-            if actual.get('legacy') != expected.get('legacy'):
-                raise RuntimeError('Restored legacy dashboard capabilities differ from the baseline')
             return
         except Exception as error:
             last_error = error
@@ -230,7 +193,7 @@ def property_value(unit, name):
     try:
         return run('systemctl', 'show', unit, '--property=' + name, '--value')
     except subprocess.CalledProcessError as error:
-        # v0.1.0 predates metadata units. Do not mistake bus/permission failures
+        # Metadata units may be absent. Do not mistake bus/permission failures
         # for a missing optional unit, or tolerate a missing dashboard service.
         if unit in UNITS and name in ('ActiveState', 'ExecStart', 'UnitFileState') and re.search(
                 r'not[- ]found|could not be found|not loaded|does not exist', error.output or '', re.I):
@@ -369,22 +332,6 @@ def copy_environment(source, destination):
         raise RuntimeError('Environment backup/restore failed content, ownership or permissions verification')
 
 
-def migrate_legacy_database(python, database):
-    info = database.stat()
-    run(str(python), '-c',
-        'import sys; from asl3_connection_logger.database import initialize_database; '
-        'initialize_database(sys.argv[1])', str(database), uid=info.st_uid, gid=info.st_gid)
-    after = database.stat()
-    if (after.st_uid, after.st_gid, stat.S_IMODE(after.st_mode)) != (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)):
-        raise RuntimeError('Legacy database ownership or permissions changed')
-    integrity(database)
-
-
-def verify_legacy_environment(python, previous, identity):
-    if installed_version(python) != previous['version'] or installed_release(python) != identity:
-        raise RuntimeError('Restored legacy package version/content differs from its backup')
-
-
 def restore_environment(install, backup):
     # Prepare the complete replacement before moving the failed environment aside.
     staging = Path(tempfile.mkdtemp(prefix='.venv-restore-', dir=install))
@@ -436,9 +383,6 @@ def rollback(install, backup, manifest):
     environment_restored = True
     if manifest.get('environment_mutated'):
         environment_restored = attempt('restore Python environment', lambda: restore_environment(install, backup))
-        if environment_restored and manifest.get('legacy_package'):
-            environment_restored = attempt('verify restored legacy environment', lambda:
-                verify_legacy_environment(install / '.venv/bin/python', manifest['previous'], manifest['legacy_package']))
     for unit, saved in manifest['units'].items():
         attempt('restore ' + unit, lambda unit=unit, saved=saved:
                 restore_unit(UNIT_DIR / unit, backup, saved))
@@ -529,6 +473,8 @@ def perform_upgrade(source, install, root):
     if not python.is_file() or (install / '.venv').is_symlink():
         raise RuntimeError('Existing, nonsymlink Python environment required')
     incoming = version_from_source((source / 'src/asl3_connection_logger/_version.py').read_text())
+    installed = installed_version(python)
+    print(f'Installed: {installed["version"]}; incoming: {incoming}', flush=True)
     arguments = service_arguments(SERVICE)
     if not arguments or Path(arguments[0]) != python:
         raise RuntimeError('Dashboard ExecStart does not use the configured installed Python environment')
@@ -545,9 +491,6 @@ def perform_upgrade(source, install, root):
         raise RuntimeError('Dashboard must be active before upgrading')
     if property_value(UNITS[0], 'ActiveState') in ('active', 'activating'):
         raise RuntimeError('Metadata synchronization is running; retry after it finishes')
-    installed = installed_version(python)
-    legacy = installed['version'] == '0.1.0'
-    print(f'Installed: {installed["version"]}; incoming: {incoming}', flush=True)
     timer = {'active': property_value(TIMER, 'ActiveState'),
              'enabled': property_value(TIMER, 'UnitFileState')}
     if timer['enabled'] in ('masked', 'masked-runtime') or (UNIT_DIR / UNITS[0]).is_symlink() and (UNIT_DIR / UNITS[0]).resolve() == Path('/dev/null'):
@@ -596,18 +539,11 @@ def perform_upgrade(source, install, root):
             directory = UNIT_DIR / (unit + '.d')
             if directory.is_dir():
                 copy_environment(directory, dropins / directory.name)
-        previous = dashboard_state(port, installed if legacy else None)
+        previous = dashboard_state(port)
         manifest['previous'] = previous
         if public_identity(previous['version']) != public_identity(installed):
             raise RuntimeError('Running dashboard differs from installed application; resolve before upgrading')
-        if legacy:
-            manifest['legacy_package'] = installed_release(python)
-            print('Legacy v0.1.0: capturing installed package identity; retaining schema v2 for callback compatibility.', flush=True)
-            with sqlite3.connect(database.resolve().as_uri() + '?mode=ro', uri=True) as db:
-                schema, = db.execute('SELECT version FROM schema_version').fetchall()
-                if schema[0] != 2:
-                    raise RuntimeError('v0.1.0 upgrade requires the public dashboard schema v2')
-        elif previous['release'] is not None and installed_release(python) != previous['release']:
+        if previous['release'] is not None and installed_release(python) != previous['release']:
             raise RuntimeError('Running dashboard content differs from installed environment')
 
         wheels = backup / 'wheels'
@@ -632,8 +568,6 @@ def perform_upgrade(source, install, root):
         run(str(python), '-m', 'pip', 'install', '--upgrade', '--force-reinstall', str(wheel))
         if installed_release(python) != release:
             raise RuntimeError('Installed application content differs from incoming wheel')
-        if legacy:
-            migrate_legacy_database(python, database)
         changed_units = False
         for unit, content in contents.items():
             target = UNIT_DIR / unit

@@ -36,7 +36,7 @@ def machine(tmp_path, monkeypatch):
     root.mkdir(mode=0o700)
     units.mkdir()
     (source / 'src/asl3_connection_logger').mkdir(parents=True)
-    (source / 'src/asl3_connection_logger/_version.py').write_text('VERSION = "0.2.1"\n')
+    (source / 'src/asl3_connection_logger/_version.py').write_text('VERSION = "0.2.4"\n')
     (source / 'systemd').mkdir()
     for unit in upgrade.UNITS:
         (source / 'systemd' / unit).write_text(
@@ -49,7 +49,7 @@ def machine(tmp_path, monkeypatch):
     (install / '.venv/bin').mkdir(parents=True)
     (install / '.venv/bin/python').write_text('previous interpreter')
     (install / '.venv/previous-only').write_text('preserve this file')
-    old = {'version': '0.2.0', 'commit': 'a' * 40, 'dirty': False, 'content_sha256': 'old-content'}
+    old = {'version': '0.2.3', 'commit': 'a' * 40, 'dirty': False, 'content_sha256': 'old-content'}
     marker = install / '.venv/release.json'
     marker.write_text(json.dumps(old))
     database, metadata_db = tmp_path / 'custom.db', tmp_path / 'metadata.db'
@@ -65,7 +65,7 @@ def machine(tmp_path, monkeypatch):
                             database=database, metadata_db=metadata_db, marker=marker,
                             old=old, running=old.copy(), calls=[], failure=None,
                             failed_once=False, timer_active='active', timer_enabled='enabled',
-                            metadata_checks=0, previous_endpoint=False, sentinels=sentinels,
+                            metadata_checks=0, previous_endpoint=True, sentinels=sentinels,
                             new=None)
     def fail_once(name):
         if state.failure == name and not state.failed_once:
@@ -116,12 +116,14 @@ def machine(tmp_path, monkeypatch):
             return ''
         if '-c' in args:
             release = json.loads(marker.read_text())
+            if 'from importlib.metadata import version' in args[-1]:
+                return release['version']
             return json.dumps(info(release) if 'version_info' in args[-1] else release)
         if 'wheel' in args:
             fail_once('wheel-build')
-            destination = Path(args[args.index('--wheel-dir') + 1]) / 'asl3_connection_logger-0.2.1-py3-none-any.whl'
+            destination = Path(args[args.index('--wheel-dir') + 1]) / 'asl3_connection_logger-0.2.4-py3-none-any.whl'
             with ZipFile(destination, 'w') as archive:
-                archive.writestr('asl3_connection_logger/_version.py', 'VERSION = "0.2.1"\n')
+                archive.writestr('asl3_connection_logger/_version.py', 'VERSION = "0.2.4"\n')
                 archive.writestr('asl3_connection_logger/build-info.json', json.dumps(
                     {'commit': 'b' * 40, 'dirty': False, 'built_at': 'new timestamp'}))
                 archive.writestr('asl3_connection_logger/release.py', 'new implementation')
@@ -365,19 +367,22 @@ def test_disabled_timer_state_survives_upgrade_and_rollback(machine):
 
 
 def test_no_running_release_endpoint_is_not_accepted_for_new_release(machine, monkeypatch):
+    machine.old['version'] = '0.2.0'
+    machine.running = machine.old.copy()
+    machine.marker.write_text(json.dumps(machine.old))
     real_api = upgrade.get_api
     def api(port, path):
         if path == '/api/release':
             raise HTTPError('url', 404, 'not found', {}, None)
         return real_api(port, path)
     monkeypatch.setattr(upgrade, 'get_api', api)
-    with pytest.raises(RuntimeError, match='Running dashboard release content mismatch'):
+    with pytest.raises(RuntimeError, match='Dashboard verification failed'):
         machine.perform()
     assert machine.status()['state'] == 'rolled-back'
 
 
 def test_same_version_with_different_content_requires_new_process(machine):
-    machine.old['version'] = '0.2.1'
+    machine.old['version'] = '0.2.4'
     machine.running = machine.old.copy()
     machine.marker.write_text(json.dumps(machine.old))
     machine.previous_endpoint = True
@@ -426,7 +431,7 @@ def test_setup_upgrade_dispatch_from_isolated_checkout(tmp_path):
     assert json.loads(result) == [str(source), '--install-dir', '/custom/installed']
 
 
-def test_protected_backup_root_rejects_repository_and_symlink(tmp_path):
+def test_protected_backup_root_rejects_repository_and_symlink(tmp_path, external_tmp_path):
     source, install = tmp_path / 'source', tmp_path / 'installed'
     source.mkdir()
     install.mkdir()
@@ -437,7 +442,7 @@ def test_protected_backup_root_rejects_repository_and_symlink(tmp_path):
     link.symlink_to(source, target_is_directory=True)
     with pytest.raises(RuntimeError, match='symlinks'):
         upgrade.protected_backup_root(link, source, install)
-    unsafe = tmp_path / 'unsafe'
+    unsafe = external_tmp_path / 'unsafe'
     unsafe.mkdir(mode=0o755)
     with pytest.raises(RuntimeError, match='root-owned with mode 0700'):
         upgrade.protected_backup_root(unsafe, source, install)
@@ -585,8 +590,8 @@ def test_success_journal_failure_triggers_rollback(machine, monkeypatch):
     assert 'cannot finalize success' in machine.status()['upgrade_error']
 
 
-def test_backup_wrong_owner_rejected(tmp_path, monkeypatch):
-    root = tmp_path / 'backups'
+def test_backup_wrong_owner_rejected(tmp_path, external_tmp_path, monkeypatch):
+    root = external_tmp_path / 'backups'
     root.mkdir(mode=0o700)
     real_stat = Path.stat
     def file_stat(path, *args, **kwargs):
@@ -836,42 +841,6 @@ def test_configured_install_path_is_not_rewritten_as_a_database_directory():
     assert shlex.split(fields['ReadWritePaths']) == ['/srv/metadata']
 
 
-@pytest.mark.parametrize('missing_health', [False, True])
-def test_legacy_missing_identity_apis_and_metadata_units_upgrade_and_rollback(machine, monkeypatch, missing_health):
-    machine.old['version'] = '0.1.0'
-    machine.marker.write_text(json.dumps(machine.old))
-    machine.running = machine.old.copy()
-    machine.timer_active, machine.timer_enabled = 'inactive', ''
-    with sqlite3.connect(machine.database) as db:
-        db.execute('CREATE TABLE schema_version(version)')
-        db.execute('INSERT INTO schema_version VALUES (2)')
-    for unit in upgrade.UNITS:
-        (machine.units / unit).unlink()
-    real_api, real_property = upgrade.get_api, upgrade.property_value
-    def api(port, path):
-        if machine.running == machine.old and (path in ('/api/version', '/api/release') or missing_health and path == '/health'):
-            raise HTTPError('http://127.0.0.1:9876' + path, 404, 'not found', {}, None)
-        return real_api(port, path)
-    def prop(unit, name):
-        if unit == upgrade.UNITS[0] and name == 'ExecStart':
-            return ''
-        return real_property(unit, name)
-    monkeypatch.setattr(upgrade, 'get_api', api)
-    monkeypatch.setattr(upgrade, 'property_value', prop)
-    machine.failure = 'api-health'
-    with pytest.raises(RuntimeError, match='Previous dashboard restored and verified'):
-        machine.perform()
-    assert machine.status()['state'] == 'rolled-back'
-    assert machine.status()['dashboard_verified'] is True
-    assert machine.status()['previous']['legacy']['version_endpoint'] is False
-    assert machine.running == machine.old
-    assert not any((machine.units / unit).exists() for unit in upgrade.UNITS)
-    assert machine.timer_active == 'inactive' and machine.timer_enabled in ('', 'disabled')
-    with sqlite3.connect(machine.database) as db:
-        assert db.execute('SELECT value FROM history').fetchall() == [(42,), (99,)]
-        assert db.execute('SELECT version FROM schema_version').fetchone() == (2,)
-
-
 @pytest.mark.parametrize('path', ['/health', '/api/version', '/api/dashboard?limit=1'])
 def test_http_errors_report_the_exact_request_url(monkeypatch, path):
     def missing(url, **kwargs):
@@ -883,7 +852,7 @@ def test_http_errors_report_the_exact_request_url(monkeypatch, path):
     assert 'GET http://127.0.0.1:9876' + path in str(error.value)
 
 
-@pytest.mark.parametrize('path', ['/health', '/api/dashboard?limit=1', '/api/version'])
+@pytest.mark.parametrize('path', ['/health', '/api/dashboard?limit=1', '/api/version', '/api/release'])
 def test_modern_missing_endpoint_retains_backup_and_fails_before_install(machine, monkeypatch, path):
     real_api = upgrade.get_api
     def api(port, request):
@@ -928,3 +897,50 @@ def test_optional_metadata_property_only_tolerates_missing_units(monkeypatch, mi
     else:
         with pytest.raises(subprocess.CalledProcessError):
             upgrade.property_value(upgrade.UNITS[0], 'ActiveState')
+
+
+@pytest.mark.parametrize('version', ['0.1.0', '0.1.1', '0.0.9', '1.0.0', '0.2.4.dev1'])
+def test_unsupported_distribution_rejected_before_identity_import(monkeypatch, version):
+    calls = []
+    def run(*args):
+        calls.append(args)
+        assert 'from importlib.metadata import version' in args[-1]
+        return version
+    monkeypatch.setattr(upgrade, 'run', run)
+    with pytest.raises(RuntimeError, match='Unsupported installed version ' + version):
+        upgrade.installed_version(Path('/unused/python'))
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize('version', ['0.1.0', '0.1.1', '1.0.0'])
+def test_unsupported_upgrade_never_probes_http_or_mutates(machine, monkeypatch, version):
+    machine.old['version'] = version
+    machine.running = machine.old.copy()
+    machine.marker.write_text(json.dumps(machine.old))
+    before = upgrade.tree_state(machine.install)
+    before_database = machine.database.read_bytes()
+    monkeypatch.setattr(upgrade, 'get_api', lambda *args: pytest.fail('Unsupported version probed HTTP'))
+    with pytest.raises(RuntimeError, match='unsupported; no migration was attempted'):
+        machine.perform()
+    assert upgrade.tree_state(machine.install) == before
+    assert machine.database.read_bytes() == before_database
+    assert not list(machine.root.glob('upgrade-*'))
+    assert not any('pip' in args for args in machine.calls)
+    assert not any(args[0] == 'systemctl' and args[1] != 'show' for args in machine.calls)
+
+
+def test_supported_distribution_requires_modern_identity_module(monkeypatch):
+    def run(*args):
+        if 'from importlib.metadata import version' in args[-1]:
+            return '0.2.3'
+        raise subprocess.CalledProcessError(1, args, 'Missing modern version module')
+    monkeypatch.setattr(upgrade, 'run', run)
+    with pytest.raises(subprocess.CalledProcessError, match='exit status 1'):
+        upgrade.installed_version(Path('/unused/python'))
+
+
+def test_installed_distribution_and_application_version_must_match(monkeypatch):
+    monkeypatch.setattr(upgrade, 'run', lambda *args: '0.2.3' if
+                        'from importlib.metadata import version' in args[-1] else json.dumps({'version': '0.2.4'}))
+    with pytest.raises(RuntimeError, match='distribution and application versions differ'):
+        upgrade.installed_version(Path('/unused/python'))
