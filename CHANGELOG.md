@@ -2,6 +2,11 @@
 
 ## 0.2.4
 
+- Reject installation paths containing quotes, backslashes or control characters
+  before upgrade preparation or fresh setup changes; systemd cannot use these
+  executable paths. Paths with spaces remain supported by unit rendering.
+- Render and verify the fresh dashboard service with the upgrader's systemd
+  quoting rules, fixing unquoted executable paths containing spaces.
 - Discontinue v0.1.0 upgrade support. Reject unsupported installed versions with
   a clear error before HTTP probing, package installation or database migration.
 - Remove v0.1.0 identity/endpoint fallbacks, migration and rollback compatibility,

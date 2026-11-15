@@ -75,6 +75,8 @@ if [[ "$MODE" == public ]]; then
     }
 fi
 
+python3 "$REPO/scripts/render-systemd-unit.py" "$REPO" --check-install-path
+
 "$REPO/scripts/show-versions.sh" "$REPO"
 
 echo "=== CREATE SERVICE USER ==="
@@ -85,32 +87,13 @@ if ! id asl3logger-web >/dev/null 2>&1; then
 fi
 
 echo "=== INSTALL SYSTEMD SERVICE ==="
-cat > "/etc/systemd/system/${SERVICE}.service" <<EOF
-[Unit]
-Description=ASL3 Connection Logger Web Dashboard
-After=network.target
-
-[Service]
-Type=simple
-User=asl3logger-web
-Group=asterisk
-WorkingDirectory=$REPO
-ExecStart=$REPO/.venv/bin/python -m asl3_connection_logger.web --host 127.0.0.1 --port $PORT
-Restart=on-failure
-RestartSec=5
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-RestrictSUIDSGID=true
-UMask=0077
-
-[Install]
-WantedBy=multi-user.target
-EOF
+UNIT_TMP="$(mktemp -d)"
+trap 'rm -rf "$UNIT_TMP"' EXIT
+python3 "$REPO/scripts/render-systemd-unit.py" "$REPO" \
+    < "$REPO/systemd/asl3-connection-dashboard.service" \
+    > "$UNIT_TMP/${SERVICE}.service"
+systemd-analyze verify --man=no "$UNIT_TMP/${SERVICE}.service"
+install -m 0644 "$UNIT_TMP/${SERVICE}.service" "/etc/systemd/system/${SERVICE}.service"
 
 echo "=== PREPARE APACHE ==="
 a2enmod proxy proxy_http headers alias

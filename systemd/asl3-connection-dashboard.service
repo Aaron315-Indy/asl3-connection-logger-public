@@ -1,0 +1,24 @@
+[Unit]
+Description=ASL3 Connection Logger Web Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=asl3logger-web
+Group=asterisk
+WorkingDirectory=/opt/asl3-connection-logger
+ExecStart=/opt/asl3-connection-logger/.venv/bin/python -m asl3_connection_logger.web --host 127.0.0.1 --port 8765
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

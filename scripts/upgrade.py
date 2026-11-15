@@ -229,6 +229,18 @@ def option(args, name, default):
     return default
 
 
+def validate_install_path(install):
+    """Reject paths systemd cannot use as executable names before any mutation."""
+    path = str(install)
+    if (not Path(path).is_absolute()
+            or any(ord(char) < 32 or ord(char) == 127 for char in path)
+            or any(char in path for char in ("'", '"', chr(92)))):
+        raise ValueError(
+            'Unsupported installation path: systemd executable paths must be absolute '
+            'and contain no quotes, backslashes or control characters. '
+            'Use a directory such as /opt/asl3-connection-logger; spaces are supported.')
+
+
 def render_unit(text, install, metadata_db):
     """Render each setting using its own systemd parsing rules."""
     substitutions = {str(DEFAULT_INSTALL): str(install), DEFAULT_DB: metadata_db,
@@ -262,6 +274,8 @@ def render_unit(text, install, metadata_db):
             line = key + '=' + path.replace('%', '%%')
         elif separator and key in ('ExecStart', 'ReadWritePaths'):
             args = shlex.split(value)
+            if key == 'ExecStart':
+                validate_install_path(replace(args[0]))
             line = key + '=' + ' '.join(quote(replace(arg), command=key == 'ExecStart') for arg in args)
         lines.append(line)
     return ('\n'.join(lines) + '\n').encode()
@@ -460,7 +474,9 @@ def check_previous_attempts(root, install):
 def upgrade(source, install=DEFAULT_INSTALL, backup_root=DEFAULT_BACKUPS):
     if os.geteuid() != 0:
         raise RuntimeError('Run setup.sh --upgrade as root')
+    validate_install_path(install)
     source, install = Path(source).resolve(), Path(install).resolve()
+    validate_install_path(install)
     root = protected_backup_root(backup_root, source, install)
     with (root / 'upgrade.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -469,6 +485,7 @@ def upgrade(source, install=DEFAULT_INSTALL, backup_root=DEFAULT_BACKUPS):
 
 
 def perform_upgrade(source, install, root):
+    validate_install_path(install)
     python = install / '.venv/bin/python'
     if not python.is_file() or (install / '.venv').is_symlink():
         raise RuntimeError('Existing, nonsymlink Python environment required')

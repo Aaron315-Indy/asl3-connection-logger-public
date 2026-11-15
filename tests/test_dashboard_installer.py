@@ -34,7 +34,8 @@ def test_private_networks_are_explicit():
 
 def test_dashboard_binds_to_localhost():
     source = installer()
-    assert "--host 127.0.0.1" in source
+    template = (INSTALLER.parents[1] / "systemd/asl3-connection-dashboard.service").read_text()
+    assert "--host 127.0.0.1" in template
     assert 'render-apache-config.sh' in source
     assert "ProxyPass" in renderer()
 
@@ -138,3 +139,28 @@ def test_installer_verifies_dashboard_api():
 
 def test_redirect_module_enabled():
     assert "a2enmod proxy proxy_http headers alias" in installer()
+
+
+def test_dashboard_unit_verified_before_installation():
+    source = installer()
+    assert source.index('--check-install-path') < source.index('useradd --system')
+    assert source.index('systemd-analyze verify') < source.index('install -m 0644')
+    assert source.index('install -m 0644') < source.index('systemctl daemon-reload')
+
+
+def test_renderer_rejects_unsupported_paths_and_preserves_spaces():
+    import subprocess
+    import sys
+
+    renderer = INSTALLER.parent / 'render-systemd-unit.py'
+    for path in ("/opt/quote'", '/opt/quote"', '/opt/back\\slash', '/opt/trailing\\',
+                 '/opt/new\nline'):
+        result = subprocess.run([sys.executable, str(renderer), path, '--check-install-path'],
+                                capture_output=True, text=True)
+        assert result.returncode == 1
+        assert 'spaces are supported' in result.stderr
+        assert not result.stdout
+    result = subprocess.run([sys.executable, str(renderer), '/opt/with spaces'],
+                            input='ExecStart=/opt/asl3-connection-logger/.venv/bin/python -V\n',
+                            capture_output=True, text=True, check=True)
+    assert 'ExecStart="/opt/with spaces/.venv/bin/python" "-V"' in result.stdout

@@ -759,7 +759,7 @@ def test_generated_metadata_units_pass_real_systemd_verification(tmp_path, direc
     database.parent.mkdir()
     repo = Path(__file__).resolve().parents[1]
     contents = {unit: upgrade.render_unit((repo / 'systemd' / unit).read_text(), install, str(database))
-                for unit in upgrade.UNITS}
+                for unit in (*upgrade.UNITS, 'asl3-connection-dashboard.service')}
     try:
         upgrade.verify_units(contents, tmp_path / 'units')
     except subprocess.CalledProcessError as error:
@@ -786,28 +786,16 @@ def test_original_quoted_working_directory_fails_real_systemd_verification(tmp_p
 
 
 @pytest.mark.parametrize('directory', ['quotes"and\'apostrophes', 'back\\slash', 'trailing\\'])
-def test_literal_working_directory_special_characters_verify_with_safe_executable(tmp_path, directory):
-    import shutil
-    import sys
-    if not shutil.which('systemd-analyze'):
-        pytest.skip('systemd-analyze is unavailable')
-    install = tmp_path / directory
-    install.mkdir()
-    repo = Path(__file__).resolve().parents[1]
-    contents = {}
-    for unit in upgrade.UNITS:
-        template = (repo / 'systemd' / unit).read_text()
-        # Isolate WorkingDirectory syntax from systemd's separate restriction on
-        # quote/backslash characters in executable filenames.
-        template = template.replace(str(upgrade.DEFAULT_INSTALL) + '/.venv/bin/python', sys.executable)
-        contents[unit] = upgrade.render_unit(template, install, upgrade.DEFAULT_DB)
-    working = next(line.split('=', 1)[1] for line in contents[upgrade.UNITS[0]].decode().splitlines()
-                   if line.startswith('WorkingDirectory='))
-    assert Path(working).resolve() == install.resolve()
-    try:
-        upgrade.verify_units(contents, tmp_path / 'units')
-    except subprocess.CalledProcessError as error:
-        pytest.fail(error.output, pytrace=False)
+def test_literal_working_directory_special_characters_rejected_before_upgrade(machine, directory, monkeypatch):
+    install = machine.install.parent / directory
+    # Path validation must precede installed environment inspection, backups,
+    # package installation and service operations.
+    monkeypatch.setattr(upgrade, 'installed_version',
+                        lambda *args: pytest.fail('installed environment inspected'))
+    with pytest.raises(ValueError, match='spaces are supported'):
+        upgrade.perform_upgrade(machine.source, install, machine.root)
+    assert not machine.calls
+    assert not list(machine.root.glob('upgrade-*'))
 
 
 @pytest.mark.parametrize('directory', ['quotes"and\'apostrophes', 'back\\slash', 'trailing\\'])
@@ -819,9 +807,9 @@ def test_systemd_rejects_unsupported_executable_paths_without_installing_units(t
     install = tmp_path / directory
     (install / '.venv/bin').mkdir(parents=True)
     (install / '.venv/bin/python').symlink_to(sys.executable)
-    repo = Path(__file__).resolve().parents[1]
-    contents = {unit: upgrade.render_unit((repo / 'systemd' / unit).read_text(), install, upgrade.DEFAULT_DB)
-                for unit in upgrade.UNITS}
+    executable = json.dumps(str(install / '.venv/bin/python'))
+    contents = {'unsupported.service': (
+        '[Service]\nExecStart=' + executable + ' -V\n').encode()}
     with pytest.raises(subprocess.CalledProcessError) as error:
         upgrade.verify_units(contents, tmp_path / 'units')
     assert 'Executable path contains special characters' in error.value.output

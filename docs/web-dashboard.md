@@ -184,9 +184,15 @@ before changing installed state. Both rendered metadata units must pass
 `systemd-analyze verify` in the backup staging directory before the timer is
 paused or packages are installed. `WorkingDirectory=` uses a literal absolute
 path; command arguments and path lists retain their separate quoting rules.
-Paths containing control characters are refused. systemd also rejects quote or
-backslash characters in executable filenames; such installation paths fail static
-verification before any installed state changes. It checks installed package content against that
+Installation paths containing control characters, single or double quotes, or
+backslashes are refused with an actionable error before upgrade preparation or
+fresh setup changes. systemd rejects these characters in executable filenames
+even when quoted or escaped. Unit rendering supports spaces, percent signs and
+trailing spaces. The fresh dashboard installer uses the same renderer and verifies
+its generated service before installing it. Fresh collector/setup installation
+still requires the documented default `/opt/asl3-connection-logger` location;
+custom existing installations are supported by the upgrade options above.
+Setup checks installed package content against that
 wheel and checks the running dashboard's `/api/release` identity against it.
 This endpoint captures version, commit, dirty flag, and package content hash when
 the dashboard process starts, so an old process cannot pass verification merely

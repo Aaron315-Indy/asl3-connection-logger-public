@@ -97,3 +97,50 @@ upgrade/repeat behavior and rollback after pip installation, dashboard restart,
 release identity or timer activation failures. Original history, post-backup
 callback events, configuration, ownership, permissions and timer state remain
 verified. Rollback never restores a database snapshot over the live database.
+
+### v0.2.4 installation requirements and final validation
+
+Use an ASL3 host with Python 3.11 or newer, Python venv/pip, systemd (including
+`systemd-analyze`), Apache, curl, and the existing `asterisk` account. Setup needs
+root and an interactive terminal for fresh installation; `--upgrade` works
+noninteractively. Fresh collector/setup installation uses
+`/opt/asl3-connection-logger`. Upgrades support explicitly configured existing
+paths. Unit rendering preserves spaces, percent signs and trailing spaces.
+Installation paths containing single/double quotes, backslashes or control
+characters are rejected before preparation or installation changes: systemd
+cannot accept these executable filenames. Choose a supported installation path;
+the installer does not redirect executables or bypass unit verification.
+The fresh dashboard service now shares the upgrade renderer and must pass
+`systemd-analyze verify` before it is installed.
+
+Upgrade requires healthy existing APIs, an idle metadata job, unmasked metadata
+units, sufficient backup disk space and root-controlled backup ancestors. Keep
+all recovery journals and backups until the release has been accepted. Automatic
+rollback restores the previous application and units, verifies the old dashboard,
+and preserves live history; incomplete rollback requires manual recovery using
+the saved instructions. No published AllStarLink source is modified. Fresh setup
+configures supported callbacks; upgrades never reload Asterisk or Apache.
+
+The supplied pre-change unrestricted host result was **117 passed, 3 failed**
+(366.82 seconds), including all six v0.2.3 upgrade integration cases passing.
+That result is historical evidence, not validation of the final changed tree.
+Local targeted review passed 166 tests in 174.03 seconds covering upgrade safety,
+installer checks, migrations, dashboard reads, versioning and release identity.
+The focused systemd run passed 10 cases, and the final path/renderer checks passed
+5 cases. A disposable dashboard process also served the homepage, health, version
+0.2.4, release and history APIs successfully without changing its database bytes.
+These runs do not replace the six real-wheel upgrade integration cases on the
+final unrestricted host run; those cases were not rerun during this review.
+Final unrestricted host validation is still required before a release GO.
+Use `/var/tmp` for all temporary fixtures, including rollback fixtures. From an
+unrestricted root SSH shell with pytest and build dependencies installed, run:
+
+```sh
+cd /opt/asl3-connection-logger-release-v024 && sudo env TMPDIR=/var/tmp ASL3_TEST_EXTERNAL_TMPDIR=/var/tmp python3 -m pytest -q --basetemp="$(mktemp -d /var/tmp/asl3-v024-host-XXXXXX)" --junitxml=/var/tmp/asl3-v024-host-results.xml
+```
+
+Tests use disposable databases and service-control fixtures. Do not run installers
+against operational services or databases as part of this validation. Public
+dashboard mode still requires administrator-managed HTTPS and authentication;
+default fresh setup allows all client networks, so restrict web access externally
+or select a private allowlist as documented in the dashboard guide.

@@ -24,6 +24,8 @@ die() {
     exit 1
 }
 
+python3 "$SOURCE/scripts/render-systemd-unit.py" "$REPO" --check-install-path
+
 [[ $EUID -eq 0 ]] || die "Run as root."
 [[ -t 0 ]] || die "Interactive terminal required."
 if [[ -x "$REPO/.venv/bin/python" && $DRY_RUN -eq 0 ]]; then
