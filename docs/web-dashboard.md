@@ -151,7 +151,7 @@ to the source checkout or replace installed hooks. For an explicitly customized
 installation use `--upgrade --install-dir /your/installed/path` or set
 `ASL3_INSTALL_DIR` (pass it through sudo if needed).
 
-Setup supports stable v0.2.x installations, including v0.2.3 → v0.2.4 and
+Setup supports stable v0.2.x installations, including v0.2.4 → v0.2.5 and
 repeat upgrades. **v0.1.0 is unsupported.** Versions outside stable v0.2.x are
 rejected from installed distribution metadata before application identity imports,
 HTTP probing, upgrade snapshots, package installation or migration. No automated

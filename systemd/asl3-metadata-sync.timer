@@ -1,5 +1,5 @@
 [Unit]
-Description=Refresh AllStarLink node directory metadata every six hours
+Description=Refresh AllStarLink and EchoLink node directory metadata every six hours
 
 [Timer]
 OnBootSec=5min

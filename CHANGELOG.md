@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.5
+
+- Operator-reported live verification passed against 6543 EchoLink entries.
+- Validate real-wheel upgrades from v0.2.4, including repeat upgrades, rollback,
+  metadata overrides, and history for local nodes 651861 and 651862.
+- Resolve EchoLink callsigns from Asterisk's local `echolink dbdump` directory
+  through the existing metadata service and six-hour timer.
+- Cache callsigns under original logger node numbers using the 3000000 offset;
+  preserve connection history, AllStarLink resolution and manual overrides.
+- Preserve cached metadata on missing modules, command failures and missing
+  entries; skip malformed directory records.
+- Accept variable-length positive numeric EchoLink IDs and skip malformed rows.
+- Add directory, failure-handling and existing-session dashboard API tests.
+- Add a standalone live verification package builder using disposable databases
+  and a temporary dashboard API without installing or upgrading the logger.
+
 ## 0.2.4
 
 - Reject installation paths containing quotes, backslashes or control characters

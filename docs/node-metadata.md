@@ -1,4 +1,4 @@
-# AllStarLink Node Metadata
+# AllStarLink and EchoLink Node Metadata
 
 ASL3 Connection Logger enriches connection history with node information
 from the AllStarLink directory.
@@ -62,6 +62,29 @@ Synchronize a particular node:
       --node 100001
 
 The command must run as a user with permission to update the database.
+
+## EchoLink directory
+
+Starting with v0.2.5, the same synchronization service reads Asterisk's
+existing local EchoLink directory once per run when EchoLink nodes are found
+in history or overrides. It runs `asterisk -rx "echolink dbdump"` as the
+service's `asterisk` user; `chan_echolink.so` must be loaded and that user must
+have access to the Asterisk CLI control socket. No AllStarLink source changes
+or additional EchoLink network requests are needed.
+
+Rows such as `930729|KC9MCC-R|135.131.11.62` map to logger node `3930729`
+(`3000000 + EchoLink ID`). EchoLink IDs are positive numeric values of variable length;
+the callsign is cached under the original logger node number. Only callsign
+metadata is supplied by this directory; IP addresses are not stored.
+
+The existing six-hour timer refreshes both directories. The dashboard API
+uses the cache to resolve existing sessions and top-node statistics without
+rewriting connection history. Manual overrides continue to take precedence.
+Malformed rows are skipped. Missing modules, unavailable CLI commands,
+timeouts, and dumps without valid records are logged as failures; missing
+entries and failures preserve cached metadata. AllStarLink synchronization
+continues independently. The `--timeout` option bounds both HTTP requests
+and the Asterisk CLI command.
 
 ## Local overrides
 

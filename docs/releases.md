@@ -71,8 +71,8 @@ installed-wheel ownership metadata retain the strict directory scan.
 
 ### Supported upgrade starting points
 
-Direct upgrades support stable v0.2.x installations, including v0.2.3 → v0.2.4
-and repeated v0.2.4 upgrades. **v0.1.0 is unsupported.** Other versions outside
+Direct upgrades support stable v0.2.x installations, including v0.2.4 → v0.2.5
+and repeated v0.2.5 upgrades. **v0.1.0 is unsupported.** Other versions outside
 the stable v0.2.x series are also refused. Installed distribution metadata is
 checked before importing application identity modules, probing HTTP, creating an
 upgrade snapshot or changing installed files. An unsupported version receives a
@@ -80,7 +80,7 @@ clear error; no database migration is attempted.
 
 Supported installations require a healthy dashboard with `/health`,
 `/api/version` and a working history API. `/api/release` is required except for
-public v0.2.0, which predates that endpoint. The incoming v0.2.4 installation
+public v0.2.0, which predates that endpoint. The incoming v0.2.5 installation
 always requires strict version and release-content verification. HTTP diagnostics
 identify the exact URL. SQLite/environment backups and unit snapshots precede
 HTTP checks and package installation for supported upgrades.
@@ -98,7 +98,7 @@ release identity or timer activation failures. Original history, post-backup
 callback events, configuration, ownership, permissions and timer state remain
 verified. Rollback never restores a database snapshot over the live database.
 
-### v0.2.4 installation requirements and final validation
+### Installation requirements and historical v0.2.4 validation
 
 Use an ASL3 host with Python 3.11 or newer, Python venv/pip, systemd (including
 `systemd-analyze`), Apache, curl, and the existing `asterisk` account. Setup needs
@@ -144,3 +144,81 @@ against operational services or databases as part of this validation. Public
 dashboard mode still requires administrator-managed HTTPS and authentication;
 default fresh setup allows all client networks, so restrict web access externally
 or select a private allowlist as documented in the dashboard guide.
+
+### v0.2.5 release candidate
+
+This release adds local EchoLink directory callsigns to the existing metadata
+sync command and six-hour timer. Fresh installation installs that service and
+timer; upgrade installs the incoming wheel (including `echolink.py`) and renders
+both metadata units. No new service, network directory dependency, schema change,
+or callback configuration is required. Positive variable-length IDs map to
+`3000000 + ID`, including ID `1` → `3000001` and ID `1234567` → `4234567`.
+
+The operator reports live production verification **PASSED against 6543 EchoLink
+directory entries**. This is supplied live evidence; release preparation does not
+rerun production verification or modify production. Automated release checks use
+disposable databases, loopback servers and service-control fixtures. Real-wheel
+upgrade checks cover both v0.2.3 and v0.2.4, repeat upgrades, injected failures,
+manual overrides, and history for local nodes 651861 and 651862.
+
+Final local validation on 2026-11-16: **302 passed in 862.40 seconds**, no
+failures or skips, using Python 3.13 and pytest 8.3.5. This supersedes the
+historical v0.2.4 pending-validation note above for this candidate. Command:
+
+```sh
+TMPDIR=/var/tmp ASL3_TEST_EXTERNAL_TMPDIR=/var/tmp python3 -m pytest -q --basetemp=/var/tmp/asl3-v025-release-tests --junitxml=/var/tmp/asl3-v025-release-results.xml
+```
+
+Shell syntax (`bash -n scripts/*.sh`), `git diff --check`, and the standalone
+EchoLink verification package build also passed. No production installer,
+upgrader, metadata sync, service command or live verification was run during
+release preparation.
+
+#### Exact v0.2.4 → v0.2.5 procedure
+
+Keep the existing dashboard running. Use the reviewed v0.2.5 source archive,
+created locally from the release candidate commit with:
+
+```sh
+python3 scripts/build-release.py /var/tmp/asl3-connection-logger-v0.2.5.tar.gz
+```
+
+Transfer that archive to the target host only when deployment is authorized.
+On the target, extract into a new incoming directory, separate from the installed
+application, and run the supported transactional upgrade as root:
+
+```sh
+incoming_dir=$(mktemp -d /var/tmp/asl3-v025-incoming.XXXXXX)
+tar -xzf /var/tmp/asl3-connection-logger-v0.2.5.tar.gz -C "$incoming_dir"
+sudo "$incoming_dir/scripts/show-versions.sh" "$incoming_dir" /opt/asl3-connection-logger
+sudo "$incoming_dir/scripts/setup.sh" --upgrade
+```
+
+Confirm preflight reports installed `0.2.4` and incoming `0.2.5`. For a custom
+installation, append `--install-dir /actual/installed/path` to the setup command
+and use that same path for version inspection. The upgrader discovers the
+configured database and dashboard port. It backs up SQLite and the environment,
+checks installed/running release identity, installs the wheel, restarts the
+dashboard, verifies APIs/content, and preserves the timer's enabled/active state.
+It preserves live history, metadata overrides, both node configurations and
+callbacks, Apache settings, and authentication. It does not reload Asterisk.
+
+After success, using the configured dashboard port (default 8765):
+
+```sh
+curl --fail --silent --show-error http://127.0.0.1:8765/health
+curl --fail --silent --show-error http://127.0.0.1:8765/api/version
+curl --fail --silent --show-error http://127.0.0.1:8765/api/release
+sudo systemctl status --no-pager asl3-connection-dashboard.service
+sudo systemctl list-timers --all asl3-metadata-sync.timer
+```
+
+Expect version `0.2.5` and a successful `Upgrade verified` result. Confirm history
+for both nodes 651861 and 651862 and existing manual overrides in the dashboard.
+Use the read-only SQLite integrity check in the README (adjust for a custom DB).
+EchoLink callsigns refresh on the existing timer schedule; a previously disabled
+timer remains disabled. The `asterisk` service account must have CLI socket
+access and `chan_echolink.so` must already be loaded for EchoLink resolution.
+Retain `/var/backups/asl3-connection-logger/upgrade-*`. If any step fails, inspect
+`state.json` and `ROLLBACK.txt`; do not blindly retry or restore a database backup
+over live history. No tag or public `main` update is needed for this procedure.

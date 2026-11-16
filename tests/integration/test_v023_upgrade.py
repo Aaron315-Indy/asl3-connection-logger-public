@@ -1,4 +1,4 @@
-"""Real v0.2.3 to v0.2.4 wheels, SQLite and HTTP; service control is a fixture.
+"""Real v0.2.3/v0.2.4 to current release wheels, SQLite and HTTP; service control is a fixture.
 
 No production service manager, node, configuration or database is accessed.
 """
@@ -42,14 +42,15 @@ def history(path):
                 for table in ('connection_events', 'connection_sessions')}
 
 
-@pytest.fixture(scope='module')
-def upgrade_sources(tmp_path_factory):
+@pytest.fixture(scope='module', params=['0.2.3', '0.2.4'])
+def upgrade_sources(tmp_path_factory, request):
+    old_version = request.param
     if os.geteuid() != 0:
         pytest.skip('Real upgrade credential/backup checks require root in disposable fixtures')
     root = tmp_path_factory.mktemp('v023-upgrade')
-    old, incoming = root / 'public-023', root / 'incoming'
+    old, incoming = root / ('public-' + old_version), root / 'incoming'
     old.mkdir(); incoming.mkdir()
-    archive = subprocess.check_output(['git', 'archive', 'v0.2.3'], cwd=ROOT)
+    archive = subprocess.check_output(['git', 'archive', 'v' + old_version], cwd=ROOT)
     with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
         tar.extractall(old, filter='data')
     for name in ('pyproject.toml', 'setup.py', 'README.md', 'LICENSE'):
@@ -67,7 +68,7 @@ def upgrade_sources(tmp_path_factory):
                              '--no-deps', '--wheel-dir', str(wheels), str(old)],
                             cwd=root, env=env, stderr=subprocess.STDOUT)
     wheel, = wheels.glob('*.whl')
-    assert wheel.name.startswith('asl3_connection_logger-0.2.3-')
+    assert wheel.name.startswith('asl3_connection_logger-' + old_version + '-')
     try:
         yield root, incoming, wheel, env
     finally:
@@ -204,7 +205,7 @@ web.main()
 
     def callback(self, remote):
         self.python_run('from asl3_connection_logger.collector import process_event; '
-                        f'process_event({str(self.database)!r}, "658860", {remote!r}, "connect")')
+                        f'process_event({str(self.database)!r}, "651861", {remote!r}, "connect")')
 
 
 @pytest.fixture
@@ -222,9 +223,11 @@ def v023_machine(upgrade_sources, tmp_path, external_tmp_path, monkeypatch):
     machine.python_run('from datetime import datetime, timezone; '
         'from asl3_connection_logger.collector import process_event; '
         f'p={str(machine.database)!r}; '
-        'process_event(p,"658860","2000","connect",timestamp=datetime(2026,1,1,tzinfo=timezone.utc)); '
-        'process_event(p,"658860","2000","disconnect",timestamp=datetime(2026,1,1,1,tzinfo=timezone.utc)); '
-        'process_event(p,"1999","3000","connect")')
+        'process_event(p,"651861","2000","connect",timestamp=datetime(2026,1,1,tzinfo=timezone.utc)); '
+        'process_event(p,"651861","2000","disconnect",timestamp=datetime(2026,1,1,1,tzinfo=timezone.utc)); '
+        'process_event(p,"651862","3000","connect")')
+    with sqlite3.connect(machine.database) as db:
+        db.execute("INSERT INTO node_metadata_overrides (node_number, callsign) VALUES ('3930729', 'MANUAL-R')")
     machine.database.chmod(0o640)
     service = machine.units / (machine.upgrade.SERVICE + '.service')
     service.write_text('[Service]\nWorkingDirectory=' + str(machine.install) + '\nExecStart=' +
@@ -268,6 +271,8 @@ def assert_history_and_configuration(machine, schema=3):
         machine.db_stat.st_ino, machine.db_stat.st_uid, machine.db_stat.st_gid, machine.db_stat.st_mode)
     with sqlite3.connect(machine.database) as db:
         assert db.execute('SELECT version FROM schema_version').fetchone() == (schema,)
+        assert db.execute('SELECT node_number, callsign FROM node_metadata_overrides').fetchall() == [('3930729', 'MANUAL-R')]
+        assert {row[0] for row in db.execute('SELECT DISTINCT local_node FROM connection_sessions')} == {'651861', '651862'}
     for path, expected in machine.sentinels.items():
         info = path.stat()
         assert (path.read_bytes(), info.st_mode, info.st_uid, info.st_gid) == expected
@@ -282,7 +287,7 @@ def test_real_v023_upgrade_repeat_and_verified_rollback(v023_machine, failure):
     machine = v023_machine
     previous = http(machine.port, '/api/release')
     previous_version = http(machine.port, '/api/version')
-    assert previous['version'] == '0.2.3'
+    assert previous['version'] in ('0.2.3', '0.2.4')
     assert machine.upgrade.installed_release(machine.python) == previous
     if failure:
         machine.failure = failure
@@ -305,6 +310,9 @@ def test_real_v023_upgrade_repeat_and_verified_rollback(v023_machine, failure):
         assert state['state'] == 'complete'
         assert http(machine.port, '/api/release') == state['expected']
         assert machine.upgrade.installed_release(machine.python) == state['expected']
+        assert machine.python_run('from asl3_connection_logger.echolink import parse_directory; '
+            'print(parse_directory("1234567|N0LONG|192.0.2.1")["4234567"]["callsign"])') == 'N0LONG'
+        assert 'EchoLink' in (machine.units / machine.upgrade.TIMER).read_text()
         assert state['expected']['version'] == machine.upgrade.version_from_source(
             (machine.source / 'src/asl3_connection_logger/_version.py').read_text())
         assert machine.process.pid != machine.processes[0].pid

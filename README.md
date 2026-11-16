@@ -65,7 +65,7 @@ specific releases; see [release details](docs/releases.md) for tagged builds.
 
 Run this block **as root in an interactive terminal** on Debian 13 or ASL3.
 Supported starting points are stable **v0.2.x** installations, including
-**v0.2.3 → v0.2.4** and repeat upgrades to v0.2.4. **v0.1.0 is unsupported**
+**v0.2.4 → v0.2.5** and repeat upgrades to v0.2.5. **v0.1.0 is unsupported**
 and is rejected before migration or installed-state changes. See [compatibility and recovery details](docs/web-dashboard.md#upgrading-an-existing-installation).
 Keep the existing dashboard running. The incoming checkout is separate from the
 default installed application at `/opt/asl3-connection-logger`.
@@ -204,7 +204,7 @@ and troubleshooting.
 
 ## Node metadata
 
-Connection history can display AllStarLink directory callsigns, locations, and locally configured descriptions. Metadata is cached in SQLite and refreshed by a systemd timer.
+Connection history can display AllStarLink directory callsigns and locations, EchoLink callsigns from Asterisk’s local directory, and locally configured descriptions. Metadata is cached in SQLite and refreshed by a systemd timer.
 
 See [Node metadata documentation](docs/node-metadata.md) for synchronization, configuration, and local overrides.
 

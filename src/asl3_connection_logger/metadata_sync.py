@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Synchronize connected-node metadata from the AllStarLink directory."""
+"""Synchronize connected-node metadata from AllStarLink and local EchoLink."""
 
 import argparse
 import logging
@@ -8,6 +8,7 @@ import sys
 import time
 
 from .database import initialize_database
+from .echolink import ECHOLINK_OFFSET, fetch_directory
 from .metadata import cache_node, fetch_node
 
 LOG = logging.getLogger(__name__)
@@ -42,6 +43,9 @@ def sync_nodes(db_path, nodes=None, timeout=10, delay=0.25):
         "failed": 0,
     }
 
+    echolink_records = None
+    echolink_error = None
+
     for index, node in enumerate(nodes):
         node = str(node)
 
@@ -54,7 +58,20 @@ def sync_nodes(db_path, nodes=None, timeout=10, delay=0.25):
             time.sleep(delay)
 
         try:
-            record = fetch_node(node, timeout=timeout)
+            if int(node) > ECHOLINK_OFFSET:
+                if echolink_records is None and echolink_error is None:
+                    try:
+                        echolink_records = fetch_directory(timeout=timeout)
+                    except Exception as exc:
+                        echolink_error = exc
+                if echolink_error is not None:
+                    raise RuntimeError(f"Local EchoLink directory: {echolink_error}")
+                record = echolink_records.get(str(int(node)))
+                if record is not None:
+                    # Keep the exact node key recorded in connection history.
+                    record = {**record, "node_number": node}
+            else:
+                record = fetch_node(node, timeout=timeout)
 
             if record is None:
                 LOG.info("Node %s not found in directory", node)
@@ -74,7 +91,7 @@ def sync_nodes(db_path, nodes=None, timeout=10, delay=0.25):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Synchronize AllStarLink node directory metadata"
+        description="Synchronize AllStarLink and EchoLink node directory metadata"
     )
     parser.add_argument(
         "--database",
@@ -90,7 +107,7 @@ def main(argv=None):
         "--timeout",
         type=float,
         default=10,
-        help="HTTP timeout in seconds",
+        help="HTTP and Asterisk CLI timeout in seconds",
     )
     parser.add_argument(
         "--delay",
